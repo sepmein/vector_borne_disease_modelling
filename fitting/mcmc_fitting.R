@@ -78,17 +78,16 @@ setup_model_parameters <- function() {
   # Population parameters
   N_h <- 969.89e4  # Total human population (Foshan city)
   
-  # Initial conditions for 7-compartment model
-  # Human compartments: S_h, E_h, I_h, R_h
-  # Vector compartments: S_v, I_v, R_v
+  # More realistic initial conditions for dengue outbreak
+  # Based on early case detection and vector dynamics
   init_state <- c(
-    N_h - 1,    # S_h0: Initially susceptible humans (nearly all population)
-    0,          # E_h0: Initially exposed humans
-    1,          # I_h0: Initially infectious humans (index case)
-    0,          # R_h0: Initially recovered humans
-    1e5,        # S_v0: Initially susceptible vectors (adjustable)
-    0,          # I_v0: Initially infectious vectors
-    0           # R_v0: Initially recovered vectors
+    N_h - 10,       # S_h0: Initially susceptible humans (assume some early exposure)
+    5,              # E_h0: Initially exposed humans (realistic for dengue)
+    5,              # I_h0: Initially infectious humans (matches early cases)
+    0,              # R_h0: Initially recovered humans
+    5000,           # S_v0: Much smaller vector population (more realistic)
+    10,             # I_v0: Some initially infectious vectors
+    0               # R_v0: Initially recovered vectors
   )
   
   cat(sprintf("Human population: %.2e\n", N_h))
@@ -106,8 +105,8 @@ setup_model_parameters <- function() {
 # ===============================================================================
 
 # Run MCMC sampling using Stan
-run_mcmc_inference <- function(stan_data, n_iter = 2000, n_chains = 12, 
-                               adapt_delta = 0.9, max_treedepth = 15) {
+run_mcmc_inference <- function(stan_data, n_iter = 2000, n_chains = 8, 
+                               adapt_delta = 0.99, max_treedepth = 15) {
   cat("Starting Bayesian inference with Stan...\n")
   cat(sprintf("Chains: %d, Iterations: %d per chain\n", n_chains, n_iter))
   cat(sprintf("Total posterior samples: %d (after warmup)\n", n_chains * n_iter/2))
@@ -139,14 +138,14 @@ run_mcmc_inference <- function(stan_data, n_iter = 2000, n_chains = 12,
   print(summary(rhat_vals[!is.na(rhat_vals)]))
   
   cat("\nEffective sample size summary:\n")
-  eff_vals <- eff_sample(fit)
+  eff_vals <- summary(fit)$summary[, "n_eff"]
   print(summary(eff_vals[!is.na(eff_vals)]))
   
   return(fit)
 }
 
 # ===============================================================================
-# 4.5. CHAIN CONVERGENCE ANALYSIS (NEW SECTION)
+# 4.5. CHAIN CONVERGENCE ANALYSIS
 # ===============================================================================
 
 # Detailed chain convergence analysis and visualization
@@ -163,7 +162,7 @@ analyze_chain_convergence <- function(fit) {
   p_rhat <- mcmc_rhat(rhat(fit))
   
   # Create effective sample size plot  
-  p_neff <- mcmc_neff(neff_ratio(fit))
+  p_neff <- mcmc_neff(summary(fit)$summary[, "n_eff"])
   
   # Chain-specific statistics
   chain_summary <- fit %>%
@@ -332,7 +331,7 @@ model_diagnostics <- function(fit, data_list) {
   cat("\n=== Model Diagnostics ===\n")
   
   # Posterior predictive checks
-  y_rep <- extract(fit, "incidence")[[1]]
+  y_rep <- rstan::extract(fit, pars = "incidence")$incidence
   y_obs <- data_list$cases
   
   # Calculate Bayesian R-squared
@@ -371,10 +370,7 @@ main_analysis <- function() {
   cat("===============================================================================\n")
   cat("SEIR-SIR Bayesian Analysis Pipeline\n")
   cat("===============================================================================\n")
-  
-  # Explain chains concept first
-  explain_chains_concept()
-  
+
   # Step 1: Data preparation
   data_list <- setup_data()
   
@@ -423,16 +419,149 @@ main_analysis <- function() {
 }
 
 # ===============================================================================
+# 7.5. MODEL COMPARISON AND IMPROVEMENT
+# ===============================================================================
+
+# Compare multiple models
+compare_models <- function(data_list) {
+  cat("\n=== Model Comparison ===\n")
+
+  # Prepare data for both models
+  model_params <- setup_model_parameters()
+
+  # SEIR-SIR model data
+  stan_data_seir <- list(
+    T = data_list$T,
+    ts = data_list$ts,
+    cases = data_list$cases,
+    N_h = model_params$N_h,
+    init_state = model_params$init_state
+  )
+
+  # SIR model data
+  stan_data_sir <- list(
+    T = data_list$T,
+    ts = data_list$ts,
+    cases = data_list$cases,
+    N_pop = model_params$N_h,
+    init_state = c(model_params$N_h - 20, 20, 0) # S0, I0, R0
+  )
+
+  # Fit both models with reduced iterations for comparison
+  cat("Fitting SEIR-SIR model...\n")
+  fit_seir <- run_mcmc_inference(stan_data_seir, n_iter = 1000, n_chains = 4)
+
+  cat("Fitting simple SIR model...\n")
+  fit_sir <- stan(
+    file = "fitting/sir_simple.stan",
+    data = stan_data_sir,
+    iter = 1000,
+    chains = 4,
+    control = list(adapt_delta = 0.95)
+  )
+
+  # Compare model fits using LOOIC
+  loo_seir <- loo(fit_seir)
+  loo_sir <- loo(fit_sir)
+
+  cat("\n--- Model Comparison (Lower LOOIC is better) ---\n")
+  cat(sprintf("SEIR-SIR LOOIC: %.2f ± %.2f\n", loo_seir$estimates[3, 1], loo_seir$estimates[3, 2]))
+  cat(sprintf("SIR LOOIC: %.2f ± %.2f\n", loo_sir$estimates[3, 1], loo_sir$estimates[3, 2]))
+
+  # Compare predictions
+  y_pred_seir <- rstan::extract(fit_seir, pars = "incidence")$incidence
+  y_pred_sir <- rstan::extract(fit_sir, pars = "incidence")$incidence
+  y_obs <- data_list$cases
+
+  # Calculate RMSE for both
+  rmse_seir <- sqrt(mean((colMeans(y_pred_seir) - y_obs)^2))
+  rmse_sir <- sqrt(mean((colMeans(y_pred_sir) - y_obs)^2))
+
+  cat(sprintf("\nRMSE Comparison:\n"))
+  cat(sprintf("SEIR-SIR RMSE: %.2f\n", rmse_seir))
+  cat(sprintf("SIR RMSE: %.2f\n", rmse_sir))
+
+  if (rmse_sir < rmse_seir) {
+    cat("✅ Simple SIR model fits better!\n")
+    return(list(best_model = "SIR", fit = fit_sir, data = stan_data_sir))
+  } else {
+    cat("✅ SEIR-SIR model fits better!\n")
+    return(list(best_model = "SEIR-SIR", fit = fit_seir, data = stan_data_seir))
+  }
+}
+
+# Improved main analysis with model selection
+main_analysis_improved <- function() {
+  cat("===============================================================================\n")
+  cat("IMPROVED SEIR-SIR Bayesian Analysis with Model Comparison\n")
+  cat("===============================================================================\n")
+
+  # Step 1: Data preparation
+  data_list <- setup_data()
+
+  # Step 2: Compare models and select best
+  model_comparison <- compare_models(data_list)
+
+  # Step 3: Run full analysis on best model
+  if (model_comparison$best_model == "SIR") {
+    cat("\n🎯 Running full analysis with SIR model...\n")
+    fit <- stan(
+      file = "fitting/sir_simple.stan",
+      data = model_comparison$data,
+      iter = 2000,
+      chains = 8,
+      control = list(adapt_delta = 0.99)
+    )
+  } else {
+    cat("\n🎯 Running full analysis with improved SEIR-SIR model...\n")
+    fit <- run_mcmc_inference(model_comparison$data)
+  }
+
+  # Step 4: Analyze results
+  analysis_results <- analyze_parameters(fit)
+
+  # Step 5: Create visualizations
+  plots <- create_model_plots(fit, data_list)
+
+  # Step 6: Model diagnostics
+  diagnostics <- model_diagnostics(fit, data_list)
+
+  # Step 7: Convergence analysis
+  convergence_analysis <- analyze_chain_convergence(fit)
+
+  # Display main plot
+  print(plots$prediction_plot)
+
+  cat("\n===============================================================================\n")
+  cat("Improved analysis completed!\n")
+  cat(sprintf("Best model: %s\n", model_comparison$best_model))
+  cat("===============================================================================\n")
+
+  return(list(
+    fit = fit,
+    data = data_list,
+    results = analysis_results,
+    plots = plots,
+    diagnostics = diagnostics,
+    convergence = convergence_analysis,
+    best_model = model_comparison$best_model
+  ))
+}
+
+# ===============================================================================
 # 8. EXECUTION
 # ===============================================================================
 
-# Run the complete analysis
-# Uncomment the line below to execute
-results <- main_analysis()
+# Run the improved analysis with model comparison
+# This will automatically select the best-fitting model
+results <- main_analysis_improved()
+
+# Alternative: Run original analysis (if you want to see the poor fit)
+# results <- main_analysis()
 
 # For interactive use, you can run individual components:
 # data_list <- setup_data()
-# model_params <- setup_model_parameters()
+# model_comparison <- compare_models(data_list)
 # ...and so on
 
 

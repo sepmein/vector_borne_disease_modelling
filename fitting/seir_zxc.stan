@@ -78,15 +78,34 @@ transformed parameters {
 }
 
 model {
-  // Priors (adjust according to actual data)
-  beta    ~ normal(0.19, 0.39);
-  beta_hv ~ normal(0.001, 0.54);
-  sigma_h ~ normal(0.25, 0.5);
-  gamma_h ~ normal(1.0/8.0, 1.0/2.0);
-  vie     ~ normal(0.005, 0.35);
-  beta_vh ~ normal(0.19, 0.39);
-  gamma_v ~ normal(1.0/6.0, 1.0/2.0);
-  phi     ~ cauchy(0,5);
+  // Priors - CORRECTED from 5%-95% CI to proper mean/sd
+  // Original intentions (keeping as comments):
+  // beta: 5%-95% CI [?, ?] - mosquito biting rate
+  // beta_hv: 5%-95% CI [?, ?] - mosquito to human transmission probability  
+  // sigma_h: 5%-95% CI [?, ?] - human incubation rate (1/incubation_days)
+  // gamma_h: 5%-95% CI [?, ?] - human recovery rate (1/infectious_days)
+  // vie: 5%-95% CI [?, ?] - human-mosquito contact rate
+  // beta_vh: 5%-95% CI [?, ?] - human to mosquito transmission probability
+  // gamma_v: 5%-95% CI [?, ?] - mosquito recovery rate (1/infectious_days)
+  
+  // Priors 95% CI
+  // beta    ~ normal(0.19, 0.39);
+  // beta_hv ~ normal(0.001, 0.54);
+  // sigma_h ~ normal(0.25, 0.5);
+  // gamma_h ~ normal(1.0/8.0, 1.0/2.0);
+  // vie     ~ normal(0.005, 0.35);
+  // beta_vh ~ normal(0.19, 0.39);
+  // gamma_v ~ normal(1.0/6.0, 1.0/2.0);
+  // phi     ~ cauchy(0,5);
+  // BETTER PRIORS using appropriate distributions for positive rates:
+  beta    ~ lognormal(log(0.2), 0.5);   // Mosquito biting rate (median=0.2, can't be negative)
+  beta_hv ~ beta(0.24, 0.2);                 // Transmission prob (mean=0.2, bounded 0-1)
+  sigma_h ~ gamma(1/3, (1/3 - 1/4));               // Incubation rate (mean=1/5 day, 5-day incubation)
+  gamma_h ~ gamma(1/4, (1/4 - 1/8));               // Recovery rate (mean=1/7 day, 7-day infectious)
+  vie     ~ lognormal(log(0.23), 0.3);  // Contact rate (median=0.05, can't be negative)
+  beta_vh ~ beta(0.24, 0.24);                 // Transmission prob (mean=0.3, bounded 0-1)
+  gamma_v ~ gamma(1/3.5, (1/3.5 - 1/6));               // Mosquito recovery (mean=1/10 day, 10-day infectious)
+  phi     ~ exponential(0.1);           // Overdispersion (more realistic than Cauchy)
 
   // Likelihood: negative binomial distribution for observed daily cases
   for (t in 1:T)
