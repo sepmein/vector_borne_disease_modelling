@@ -2,3 +2,44 @@
 .Rhistory
 .RData
 .Ruserdata
+# Ignore output and cache files
+*.Rout
+*.Rout.save
+*.RData
+*.Rhistory
+*.Rproj
+.Rproj.user/
+.Ruserdata
+# Quarto and knitr cache/output
+*_cache/
+*.nb.html
+*.utf8.md
+*.log
+*.aux
+*.toc
+*.out
+*.bbl
+*.blg
+*.tex
+*.pdf
+*.docx
+*.html
+*.DS_Store
+# Fitting/model results
+fitting/model_results.rds
+# VSCode and system files
+.vscode/
+.idea/
+# OS generated files
+Thumbs.db
+.DS_Store
+# Stan model output
+*.stanfit
+# Temporary files
+*.tmp
+*.swp
+# Python virtual environments (if any)
+.venv/
+venv/
+MODEL_REPORT_CN_files/*
+results/*

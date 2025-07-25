@@ -25,8 +25,8 @@ functions {
     real beta_vh = theta[6]; // transmission probability: human to mosquito
     real gamma_v = theta[7]; // recovery rate for mosquitoes
 
-    real dS_h = -beta * beta_hv * S_h * I_v / N_v;
-    real dE_h =  beta * beta_hv * S_h * I_v / N_v - sigma_h * E_h;
+    real dS_h = -beta * beta_hv * S_h * R_v / N_v;
+    real dE_h =  beta * beta_hv * S_h * R_v / N_v - sigma_h * E_h;
     real dI_h =                sigma_h * E_h - gamma_h * I_h;
     real dR_h =                               gamma_h * I_h;
 
@@ -70,7 +70,7 @@ transformed parameters {
     {beta, beta_hv, sigma_h, gamma_h, vie, beta_vh, gamma_v},
     rep_array(0.0,0),   /* x_r */
     rep_array(0,0)      /* x_i */
-  );
+    );
 
   // daily incidence approximated as sigma_h * E_h
   for (t in 1:T)
@@ -98,14 +98,14 @@ model {
   // gamma_v ~ normal(1.0/6.0, 1.0/2.0);
   // phi     ~ cauchy(0,5);
   // BETTER PRIORS using appropriate distributions for positive rates:
-  beta    ~ lognormal(log(0.2), 0.5);   // Mosquito biting rate (median=0.2, can't be negative)
-  beta_hv ~ beta(0.24, 0.2);                 // Transmission prob (mean=0.2, bounded 0-1)
-  sigma_h ~ gamma(1/3, (1/3 - 1/4));               // Incubation rate (mean=1/5 day, 5-day incubation)
-  gamma_h ~ gamma(1/4, (1/4 - 1/8));               // Recovery rate (mean=1/7 day, 7-day infectious)
-  vie     ~ lognormal(log(0.23), 0.3);  // Contact rate (median=0.05, can't be negative)
-  beta_vh ~ beta(0.24, 0.24);                 // Transmission prob (mean=0.3, bounded 0-1)
-  gamma_v ~ gamma(1/3.5, (1/3.5 - 1/6));               // Mosquito recovery (mean=1/10 day, 10-day infectious)
-  phi     ~ exponential(0.1);           // Overdispersion (more realistic than Cauchy)
+  beta    ~ normal(0.2, 0.5);   
+  beta_hv ~ normal(0.24, 0.2);  
+  sigma_h ~ normal(1/3, 0.08333);               
+  gamma_h ~ normal(1/4, 0.125);               
+  vie     ~ normal(0.23, 0.3);  
+  beta_vh ~ normal(0.24, 0.24);                 
+  gamma_v ~ normal(1/3.5, 0.119);               
+  phi     ~ exponential(0.1);           
 
   // Likelihood: negative binomial distribution for observed daily cases
   for (t in 1:T)
@@ -113,5 +113,22 @@ model {
 }
 
 generated quantities {
-  // Posterior predictions can be added here
+  real future_incidence[7];
+  {
+    real y_future[7, 7];
+    real future_ts[7];
+    for (i in 1:7)
+      future_ts[i] = ts[T] + i;
+    y_future = integrate_ode_rk45(
+      seir_sir_ode,
+      y_hat[T], // state at last observed day
+      ts[T],    // time at last observed day
+      future_ts, // next 7 days
+      {beta, beta_hv, sigma_h, gamma_h, vie, beta_vh, gamma_v},
+      rep_array(0.0,0),
+      rep_array(0,0)
+    );
+    for (i in 1:7)
+      future_incidence[i] = sigma_h * y_future[i,2];
+  }
 }

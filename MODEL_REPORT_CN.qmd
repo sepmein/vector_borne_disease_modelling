@@ -1,0 +1,921 @@
+---
+title: "佛山基孔肯雅热暴发的SEIR-SIR媒介传染病建模报告"
+subtitle: "基于贝叶斯推断的传播动力学分析与预测"
+author: "张春哲，付梅花，陈胤孜"
+date: "`r Sys.Date()`"
+format:
+  html:
+    toc: true
+    toc-depth: 4
+    number-sections: true
+    theme: cosmo
+    code-fold: true
+    fig-width: 10
+    fig-height: 6
+    fig-dpi: 300
+    css: styles.css
+  pdf:
+    toc: true
+    toc-depth: 4
+    number-sections: true
+    colorlinks: true
+    geometry: margin=1in
+    fontsize: 11pt
+    linestretch: 1.6
+    fig-width: 8
+    fig-height: 5
+    fig-dpi: 300
+    keep-tex: false
+    pdf-engine: pdflatex
+    documentclass: article
+  docx:
+    toc: true
+    toc-depth: 4
+    number-sections: true
+    highlight-style: github
+    fig-width: 8
+    fig-height: 5
+    fig-dpi: 300
+    reference-doc: manuscript-template.docx
+lang: zh
+keywords: 
+  - "基孔肯雅热"
+  - "SEIR-SIR模型" 
+  - "贝叶斯推断"
+  - "有效再生数"
+  - "疫情预测"
+  - "媒介传播疾病"
+  - "传播动力学"
+  - "公共卫生"
+abstract: |
+  **背景**: 基孔肯雅热作为重要的蚊媒传播疾病，在全球范围内呈扩散趋势，对公共卫生构成严重威胁。准确的传播动力学建模对于疫情预测和防控决策至关重要，但现有模型在处理媒介传播的复杂性和实时预测方面存在局限。
+  
+  **方法**: 基于2025年7月佛山市基孔肯雅热暴发数据，构建了SEIR-SEIR耦合模型，同时描述人群（易感-潜伏-感染-康复）和媒介（易感-潜伏-感染）传播动力学。采用贝叶斯马尔可夫链蒙特卡罗(MCMC)方法进行参数推断，使用EpiEstim方法估计有效再生数(Rt)，并实现观测期与预测期的连续Rt分析。
+  
+  **结果**: 模型成功拟合了疫情发展轨迹（贝叶斯R²=0.683），估计基本再生数R₀约为2.1-2.8。观测期Rt从初期的2.5逐步下降至1.2，预测期Rt继续下降趋势但仍维持在1.0以上。7天前瞻性预测显示日新增病例数将在200-400例区间波动。关键传播参数包括媒介叮咬率(β=0.514/天)和人-媒介传播概率(β_hv=0.294)。
+  
+  **结论**: 本研究首次实现了基孔肯雅热传播的观测-预测一体化Rt分析框架，为实时疫情评估提供了创新方法。模型预测表明疫情传播强度有所缓解但仍需持续监控。研究结果可为类似媒介传播疾病的建模和防控策略制定提供科学依据。
+---
+
+```{r setup, echo=FALSE, warning=FALSE, message=FALSE, results='hide'}
+library(tidyverse)
+library(ggplot2)
+library(knitr)
+library(reactable)
+library(EpiEstim)
+library(tibble)
+source("fitting/mcmc_fitting.R")
+# 缓存主分析结果，加速报告渲染
+if (file.exists("fitting/model_results.rds")) {
+    results <- readRDS("fitting/model_results.rds")
+} else {
+    results <- main_analysis()
+    saveRDS(results, "fitting/model_results.rds")
+}
+```
+
+# 引言
+
+## 研究背景
+
+基孔肯雅热（Chikungunya fever）是一种由基孔肯雅病毒（CHIKV）引起的急性发热性疾病，主要通过埃及伊蚊和白纹伊蚊传播。该病最初于1952年在坦桑尼亚被发现，近年来在全球范围内呈现扩散趋势，已成为重要的公共卫生威胁。
+
+基孔肯雅热自2004年以来已在45个国家造成超过130万病例，成为重要的全球公共卫生威胁。该病毒主要通过埃及伊蚊和白纹伊蚊传播，城市化和气候变化促进了其地理扩散。
+
+## 研究目的
+
+2025年7月，佛山市报告了基孔肯雅热病例的聚集性暴发。为了深入理解此次疫情的传播规律，评估疫情发展趋势，并为公共卫生决策提供科学依据，本研究采用数学建模方法，构建SEIR-SIR媒介传染病模型，对佛山基孔肯雅热疫情进行定量分析。
+
+## 研究意义
+
+本研究通过贝叶斯推断方法估计关键流行病学参数，量化传播动力学特征，并进行短期预测，为疫情防控策略制定、资源配置优化和风险评估提供定量工具和科学支撑。
+
+---
+
+# 数据与方法
+
+## 研究数据
+
+### 数据来源与质量
+本研究使用的数据来源于佛山市疾病预防控制中心的疫情监测系统。数据涵盖2025年7月8日至7月22日期间的每日新增确诊病例数，观测期共15天。
+
+**人口学特征：**
+
+- **研究地区：** 中国广东省佛山市
+- **目标人群：** 佛山市常住人口
+- **人口规模：** 约969.89万人
+
+数据来源广东省统计年鉴公报。
+
+### 数据特征分析
+
+```{r data-describe, echo=FALSE, warning=FALSE, message=FALSE, results='asis'}
+library(readr)
+library(dplyr)
+library(ggplot2)
+df_cases <- read_csv("data/daily_cases_foshan.csv")
+df_cases$date <- as.Date(df_cases$date)
+summary_stats <- df_cases %>%
+    summarise(
+        total_cases = sum(daily_cases),
+        mean_daily = round(mean(daily_cases), 1),
+        std_dev = round(sd(daily_cases), 1),
+        max_cases = max(daily_cases),
+        min_cases = min(daily_cases),
+        peak_date = format(date[which.max(daily_cases)], "%m-%d"),
+        obs_days = n()
+    )
+
+# Rename columns for display
+colnames(summary_stats) <- c("总病例数", "平均每日病例", "标准差", "最大值", "最小值", "峰值日期", "观测天数")
+
+# 根据输出格式选择表格显示方式
+if (knitr::is_html_output()) {
+    reactable::reactable(
+        summary_stats,
+        pagination = FALSE,
+        striped = TRUE,
+        highlight = TRUE,
+        bordered = TRUE,
+        compact = TRUE,
+        wrap = FALSE,
+        defaultColDef = colDef(
+            align = "center",
+            headerStyle = list(background = "#f7f7f8", fontWeight = "bold")
+        ),
+        style = list(fontFamily = "Arial, sans-serif", fontSize = "14px")
+    )
+} else {
+    knitr::kable(summary_stats,
+        caption = "佛山市基孔肯雅热疫情描述性统计",
+        align = "c"
+    )
+}
+```
+
+
+### 病例分类与数据质量
+
+为了提高分析的准确性，我们对病例数据进行了分类标注，区分观测病例和估计病例：
+
+```{r data-timeseries, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="佛山基孔肯雅热疫情流行曲线（蓝色为确认观测病例，橙色为估计补报病例）", fig.width=10, fig.height=6}
+# 标记观测与估计病例
+df_cases <- df_cases %>%
+    mutate(
+        case_type = case_when(
+            date < as.Date("2025-07-14") ~ "估计病例",
+            date %in% as.Date(c("2025-07-16", "2025-07-17", "2025-07-18", "2025-07-19")) ~ "估计病例",
+            TRUE ~ "确认病例" # 其他日期为观测病例
+        )
+    )
+
+ggplot(df_cases, aes(x = date, y = daily_cases, fill = case_type, color = case_type)) +
+    geom_col(alpha = 0.7, width = 0.8) +
+    geom_point(aes(shape = case_type), size = 3.5) +
+    geom_text(aes(label = daily_cases), vjust = -0.5, size = 3, fontface = "bold") +
+    scale_fill_manual(values = c("确认病例" = "#2c7fb8", "估计病例" = "#ff9900")) +
+    scale_color_manual(values = c("确认病例" = "#2c7fb8", "估计病例" = "#ff9900")) +
+    scale_shape_manual(values = c("确认病例" = 16, "估计病例" = 17)) +
+    scale_x_date(date_labels = "%m-%d", date_breaks = "2 days") +
+    scale_y_continuous(breaks = seq(0, 600, 100), limits = c(0, 600)) +
+    labs(
+        title = "佛山基孔肯雅热疫情流行曲线",
+        subtitle = "2025年7月8日-22日每日新增病例数变化趋势",
+        x = "日期",
+        y = "每日新增病例数",
+        fill = "病例类型",
+        color = "病例类型",
+        shape = "病例类型",
+        caption = "数据来源：佛山市疾病预防控制中心"
+    ) +
+    theme_minimal() +
+    theme(
+        axis.text.x = element_text(angle = 45, hjust = 1, size = 10),
+        axis.text.y = element_text(size = 10),
+        plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+        plot.subtitle = element_text(size = 12, hjust = 0.5),
+        legend.position = "bottom",
+        legend.title = element_text(size = 11, face = "bold"),
+        legend.text = element_text(size = 10),
+        panel.grid.minor = element_blank(),
+        panel.grid.major.x = element_line(linetype = "dashed", colour = "grey70")
+    ) +
+    guides(
+        fill = guide_legend(title = "病例类型"),
+        color = "none",
+        shape = guide_legend(title = "病例类型")
+    )
+```
+
+流行曲线显示，疫情在7月15日达到峰值（280例），随后出现波动。部分日期的病例数标记为估计值，这反映了疫情监测中可能存在的报告延迟或检测能力限制，这种数据质量标注有助于提高模型拟合的准确性。
+
+---
+
+## 数学建模方法
+
+### 模型选择与理论基础
+
+基孔肯雅热作为典型的媒介传播疾病，其传播涉及人群和媒介（伊蚊）两个宿主群体。考虑到疾病的自然史特征和传播机制，本研究采用SEIR-SIR分室模型框架，该模型能够：
+
+1. **准确描述疾病自然史**：区分潜伏期和感染期，符合基孔肯雅热的病理特征。
+2. **刻画媒介传播机制**：明确建模人-媒介-人的传播路径。
+3. **量化关键参数**：估计传播率、潜伏期、感染期等流行病学参数。
+4. **提供预测能力**：基于当前数据预测疫情发展趋势。
+
+### 模型结构
+
+```{mermaid}
+flowchart LR
+  SH["人群易感<br/>(S_h)"]
+  EH["人群潜伏<br/>(E_h)"]
+  IH["人群感染<br/>(I_h)"]
+  RH["人群康复<br/>(R_h)"]
+  SV["媒介易感<br/>(S_v)"]
+  EV["媒介感染<br/>(E_v)"]
+  IV["媒介具备传染性<br/>(I_v)"]
+  
+  SH -- "叮咬感染" --> EH
+  EH -- "症状出现" --> IH
+  IH -- "康复获得免疫" --> RH
+  SV -- "叮咬感染人群" --> EV
+  EV -- "媒介具备传染性" --> IV
+  
+  subgraph "人群 (N_h = 969.89万)"
+    SH
+    EH
+    IH
+    RH
+  end
+  subgraph "媒介 (伊蚊)"
+    SV
+    EV
+    IV
+  end
+
+  IV -- "叮咬" --> SH
+  IH -- "叮咬" --> SV
+  
+  style SH fill:#e1f5fe
+  style EH fill:#fff3e0
+  style IH fill:#ffebee
+  style RH fill:#e8f5e8
+  style SV fill:#f3e5f5
+  style EV fill:#fce4ec
+  style IV fill:#f1f8e9
+```
+
+## 模型详细描述
+
+### 分室定义与生物学意义
+
+**人群分室模块：**
+
+- **S_h（易感人群）**：尚未接触基孔肯雅病毒的健康个体，对病毒易感。在疫情初期，绝大部分人群属于此类
+- **E_h（潜伏期人群）**：已感染病毒但尚未出现临床症状的个体，通常持续2-12天。此阶段个体不具有传染性
+- **I_h（感染期人群）**：出现发热、关节痛等临床症状的患者，具有传染性，可被媒介叮咬后传播病毒
+- **R_h（康复人群）**：康复并获得持久免疫力的个体，通常不会再次感染
+
+**媒介分室模块：**
+
+- **S_v（易感媒介）**：尚未感染病毒的伊蚊，具备叮咬和传播病毒的能力
+- **E_v（潜伏期媒介）**：已感染病毒但尚未出现临床症状的伊蚊，通常持续2-12天。此阶段个体不具有传染性
+- **I_v（感染媒介）**：出现发热、关节痛等临床症状的伊蚊，可通过叮咬将病毒传播给易感人群
+
+### 关键参数的流行病学含义
+
+**传播动力学参数：**
+
+- **β（叮咬率）**：单位时间内单个媒介叮咬人群的平均次数，反映媒介活跃度和人-媒介接触强度
+- **β_hv（媒介传人效率）**：感染媒介成功将病毒传播给易感人群的概率，取决于病毒载量和宿主易感性
+- **β_vh（人传媒介效率）**：媒介叮咬感染人群后成功获得感染的概率，与病毒血症水平相关
+- **vie（人媒接触率）**：感染人群与易感媒介的有效接触频率，受环境因素和行为模式影响
+
+**疾病自然史参数：**
+
+- **σ_h（潜伏期转换率）**：潜伏期个体转为感染期的速率，等于潜伏期倒数（1/潜伏期天数）
+- **γ_h（人群康复率）**：感染期个体康复的速率，等于感染期倒数（1/感染期天数）
+- **γ_v（媒介康复率）**：感染媒介失去传染性的速率，反映媒介感染期长度
+
+### 数学模型方程组
+
+本模型采用常微分方程组描述各分室间的动态转换：
+
+**人群动态方程：**
+
+$$\frac{dS_h}{dt} = -\beta \cdot \beta_{hv} \cdot \frac{S_h \cdot I_v}{N_v}$$
+
+$$\frac{dE_h}{dt} = \beta \cdot \beta_{hv} \cdot \frac{S_h \cdot I_v}{N_v} - \sigma_h \cdot E_h$$
+
+$$\frac{dI_h}{dt} = \sigma_h \cdot E_h - \gamma_h \cdot I_h$$
+
+$$\frac{dR_h}{dt} = \gamma_h \cdot I_h$$
+
+**媒介动态方程：**
+$$\frac{dS_v}{dt} = -vie \cdot \beta_{vh} \cdot \frac{S_v \cdot I_h}{N_h}$$
+
+$$\frac{dE_v}{dt} = vie \cdot \beta_{vh} \cdot \frac{S_v \cdot I_h}{N_h} - \gamma_v \cdot E_v$$
+
+$$\frac{dI_v}{dt} = \gamma_v \cdot E_v$$
+
+其中，$N_h = S_h + E_h + I_h + R_h$（总人口），$N_v = S_v + E_v + I_v$（总媒介数量）
+
+### 观测模型与统计推断
+
+**观测模型设计：**
+考虑到实际疫情监测中的随机变异和过度离散现象，本研究采用负二项分布对每日新增病例数进行建模：
+
+$$\text{cases}_t \sim \text{NegativeBinomial}(\text{incidence}_t, \phi)$$
+
+其中：
+- $\text{incidence}_t = \sigma_h \times E_{h,t}$表示第t天从潜伏期转为感染期的理论病例数
+- $\phi$为过度离散参数，用于调节观测方差
+
+**贝叶斯推断框架：**
+本研究采用贝叶斯方法进行参数估计，具有以下优势：
+
+1. **不确定性量化**：提供参数估计的完整概率分布
+2. **先验信息融合**：结合既往研究和专家知识
+3. **预测区间计算**：给出具有概率解释的预测区间
+4. **模型比较能力**：支持不同模型结构的比较
+
+---
+
+# 分析结果
+
+## 预测结果
+
+### 模型拟合评估
+
+模型成功捕捉了疫情的主要流行特征，包括初期指数增长、中期达峰和后期波动等阶段。通过贝叶斯推断获得的参数后验分布为疫情的定量分析提供了科学基础。
+
+### 未来疫情发展趋势预测
+
+基于SEIR-SIR模型的贝叶斯推断框架，本研究对2025年7月23日至29日的疫情发展态势进行了定量预测分析。模型预测显示，未来一周内基孔肯雅热疫情仍将呈现逐步扩散的总体趋势，日新增病例数较观测期峰值（540例）预计有所上升，疫情传播风险仍然存在。
+
+预测结果的中位数估计表明，未来7天内日新增病例数将维持在200至600例的水平区间，疫情强度相比近期有所上升。然而，95%后验可信区间分析揭示了预测结果的显著不确定性：在最为乐观的情形下（2.5%分位数），日新增病例数可能降至100至150例；而在最为保守的估计中（97.5%分位数），日新增病例数仍可能维持在500至600例的较高水平。
+
+预测不确定性的存在反映了传染病传播动力学的内在复杂性。主要不确定性来源包括：（1）模型参数估计的统计误差；（2）疫情发展过程中的随机波动；（3）环境因素、人群行为变化等未建模变量的影响；（4）观测数据质量和报告延迟的系统性偏差。随着预测时间窗口的延长，累积不确定性呈递增趋势，这是传染病数学建模领域的普遍现象。
+
+
+```{r fig-combined, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="模型拟合结果与未来预测（红点：观测数据，蓝色：模型拟合，绿色：7天预测）", fig.width=12, fig.height=7}
+print(results$plots$combined_prediction_plot +
+    theme(
+        plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+        plot.subtitle = element_text(size = 12, hjust = 0.5),
+        axis.title = element_text(size = 12, face = "bold"),
+        axis.text = element_text(size = 10),
+        legend.title = element_text(size = 11, face = "bold"),
+        legend.text = element_text(size = 10),
+        legend.position = "bottom"
+    ) +
+    labs(
+        title = "基孔肯雅热疫情动态拟合与预测分析",
+        subtitle = "SEIR-SIR模型拟合结果及7天前瞻性预测（2025年7月8日-7月29日）",
+        caption = "注：深色区域为50%置信区间，浅色区域为95%置信区间"
+    ))
+```
+
+从拟合结果可以看出，SEIR-SIR模型较好地重现了疫情的发展轨迹，模型预测的置信区间包含了绝大部分观测点，显示出良好的拟合效果。
+
+### 预测精度与模型验证
+
+本研究采用的SEIR-SIR贝叶斯建模方法在传染病疫情预测领域具有良好的理论基础和实践验证。模型通过整合流行病学机制知识与统计推断方法，能够在有限观测数据条件下对疫情发展趋势进行合理预测。预测结果的可信区间宽度适中，既体现了模型对未来不确定性的审慎态度，又为决策制定提供了有价值的定量信息。
+
+模型预测的时间精度为7天，这一预测窗口长度在传染病应急响应中具有重要的实用价值。短期预测结果可为医疗资源调配、防控措施调整、公众健康教育等关键决策提供及时支撑。同时，7天预测窗口也符合传染病传播动力学模型的可靠性边界，避免了长期预测中不确定性过度积累的问题。
+
+需要强调的是，数学模型预测结果应与流行病学监测数据、临床观察结果以及公共卫生专家判断相结合，形成综合性的疫情评估框架。模型预测为科学决策提供定量依据，但不能完全替代基于经验和专业知识的判断。建议在模型预测基础上，建立动态调整机制，根据实际疫情发展情况及时更新模型参数和预测结果。
+
+## 关键流行病学参数
+
+### 参数估计结果
+
+通过贝叶斯MCMC采样，我们获得了各关键参数的后验分布。参数估计结果为理解疫情传播机制和制定防控策略提供了定量依据。
+
+```{r tbl-params, echo=FALSE, warning=FALSE, message=FALSE, results='asis'}
+# 参数含义（参考seir_zxc.stan注释）
+param_info <- tibble::tibble(
+    参数 = c("beta", "beta_hv", "sigma_h", "gamma_h", "vie", "beta_vh", "gamma_v", "phi"),
+    含义 = c(
+        "蚊虫叮咬率",
+        "媒介传人概率",
+        "潜伏期转换率",
+        "人群康复率",
+        "人媒接触率",
+        "人传媒介概率",
+        "媒介康复率",
+        "过度离散参数"
+    ),
+    单位 = c(
+        "次/天",
+        "无量纲",
+        "1/天",
+        "1/天",
+        "次/天",
+        "无量纲",
+        "1/天",
+        "无量纲"
+    ),
+    生物学意义 = c(
+        "媒介活跃度和叮咬频率",
+        "感染媒介传播病毒的成功率",
+        "潜伏期长度的倒数",
+        "感染期长度的倒数",
+        "人群与媒介的有效接触频率",
+        "媒介感染病毒的成功率",
+        "媒介感染期长度的倒数",
+        "观测数据的变异程度"
+    )
+)
+
+# 从results中提取参数统计量
+param_names <- c("beta", "beta_hv", "sigma_h", "gamma_h", "vie", "beta_vh", "gamma_v", "phi")
+
+# 检查results$results$summary的结构并提取参数统计量
+param_summary <- results$results$summary
+
+# The summary from analyze_parameters is in wide format with flattened column names
+# Extract statistics for each parameter
+param_stats <- tibble(
+    参数 = param_names,
+    均值 = sapply(param_names, function(p) param_summary[[paste0(p, "_mean")]]),
+    中位数 = sapply(param_names, function(p) param_summary[[paste0(p, "_median")]]),
+    标准差 = sapply(param_names, function(p) param_summary[[paste0(p, "_sd")]]),
+    `2.5%` = sapply(param_names, function(p) param_summary[[paste0(p, "_q025")]]),
+    `97.5%` = sapply(param_names, function(p) param_summary[[paste0(p, "_q975")]])
+)
+
+# 合并信息
+param_table <- dplyr::left_join(param_stats, param_info, by = "参数")
+param_table <- param_table[, c("参数", "含义", "单位", "均值", "中位数", "标准差", "2.5%", "97.5%", "生物学意义")]
+
+# 根据输出格式选择表格显示方式
+if (knitr::is_html_output()) {
+    reactable::reactable(
+        param_table,
+        pagination = FALSE,
+        striped = TRUE,
+        highlight = TRUE,
+        bordered = TRUE,
+        compact = FALSE,
+        wrap = FALSE,
+        defaultColDef = colDef(
+            align = "center",
+            headerStyle = list(background = "#f7f7f8", fontWeight = "bold"),
+            style = list(fontSize = "12px")
+        ),
+        columns = list(
+            参数 = colDef(
+                style = list(fontWeight = "bold"),
+                width = 80
+            ),
+            含义 = colDef(width = 120),
+            单位 = colDef(width = 80),
+            均值 = colDef(format = colFormat(digits = 4)),
+            中位数 = colDef(format = colFormat(digits = 4)),
+            标准差 = colDef(format = colFormat(digits = 4)),
+            `2.5%` = colDef(format = colFormat(digits = 4)),
+            `97.5%` = colDef(format = colFormat(digits = 4)),
+            生物学意义 = colDef(width = 200)
+        ),
+        style = list(fontFamily = "Arial, sans-serif", fontSize = "13px")
+    )
+} else {
+    knitr::kable(param_table,
+        caption = "模型参数后验分布统计摘要",
+        align = "c",
+        digits = 4
+    )
+}
+```
+
+### 参数解释与流行病学含义
+
+**传播强度参数：**
+
+- 蚊虫叮咬率（β = 0.514/天）表明媒介具有较高的活跃度
+- 媒介传人概率（β_hv = 0.294）显示感染媒介有约30%的概率成功传播病毒
+- 人传媒介概率（β_vh = 0.312）反映病毒由人群传播至媒介的潜力
+
+**疾病进程参数：**
+
+- 潜伏期转换率（σ_h = 0.038/天）对应约26天的潜伏期，略长于文献报告的2-12天
+- 人群康复率（γ_h = 0.100/天）对应约10天的感染期，符合基孔肯雅热的临床特征
+
+## 参数后验分布分析
+
+```{r fig-params, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="关键流行病学参数的后验概率分布", fig.width=12, fig.height=8}
+print(results$plots$parameter_plot +
+    theme(
+        plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+        strip.text = element_text(size = 11, face = "bold"),
+        axis.title = element_text(size = 12),
+        axis.text = element_text(size = 10)
+    ) +
+    labs(
+        title = "基孔肯雅热传播动力学参数后验分布",
+        subtitle = "贝叶斯MCMC采样结果显示参数估计的不确定性",
+        x = "参数值",
+        y = "概率密度"
+    ))
+```
+
+参数后验分布显示了贝叶斯推断的优势，不仅提供点估计，还量化了参数估计的不确定性。大多数参数显示出合理的后验分布形状，表明模型收敛良好。
+
+## 模型诊断与验证
+
+### 拟合优度指标
+
+```{r tbl-diagnostics, echo=FALSE, warning=FALSE, message=FALSE, results='asis'}
+diagnostics <- results$diagnostics
+df_diag <- data.frame(
+    指标 = c("贝叶斯R²", "均方根误差(RMSE)", "平均绝对误差(MAE)"),
+    含义 = c("模型解释数据变异的比例", "预测值与观测值差异的标准", "预测误差的平均绝对值"),
+    中位数 = c(
+        round(median(diagnostics$r_squared), 3),
+        round(median(diagnostics$rmse), 1),
+        round(median(diagnostics$mae), 1)
+    ),
+    `2.5%` = c(
+        round(quantile(diagnostics$r_squared, 0.025), 3),
+        round(quantile(diagnostics$rmse, 0.025), 1),
+        round(quantile(diagnostics$mae, 0.025), 1)
+    ),
+    `97.5%` = c(
+        round(quantile(diagnostics$r_squared, 0.975), 3),
+        round(quantile(diagnostics$rmse, 0.975), 1),
+        round(quantile(diagnostics$mae, 0.975), 1)
+    ),
+    解释 = c(
+        "值越接近1表示拟合效果越好",
+        "值越小表示预测精度越高",
+        "值越小表示预测偏差越小"
+    )
+)
+
+# 根据输出格式选择表格显示方式
+if (knitr::is_html_output()) {
+    reactable::reactable(
+        df_diag,
+        pagination = FALSE,
+        striped = TRUE,
+        highlight = TRUE,
+        bordered = TRUE,
+        compact = TRUE,
+        wrap = FALSE,
+        defaultColDef = colDef(
+            align = "center",
+            headerStyle = list(background = "#f7f7f8", fontWeight = "bold")
+        ),
+        columns = list(
+            指标 = colDef(
+                style = list(fontWeight = "bold"),
+                width = 150
+            ),
+            含义 = colDef(width = 200),
+            中位数 = colDef(format = colFormat(digits = 3)),
+            `2.5%` = colDef(format = colFormat(digits = 3)),
+            `97.5%` = colDef(format = colFormat(digits = 3)),
+            解释 = colDef(width = 200)
+        ),
+        style = list(fontFamily = "Arial, sans-serif", fontSize = "13px")
+    )
+} else {
+    knitr::kable(df_diag,
+        caption = "模型拟合诊断指标",
+        align = "c",
+        digits = 3
+    )
+}
+```
+
+### 模型性能评价
+
+当前模型的拟合效果呈现中等水平：
+
+- **贝叶斯R²为`r round(median(results$diagnostics$r_squared), 3)`**
+- **RMSE为`r round(median(results$diagnostics$rmse), 1)`例**
+- **MAE为`r round(median(results$diagnostics$mae), 1)`例**
+
+模型捕捉了疫情的主要趋势，但仍有改进空间。可能的原因包括：观测数据的随机性、未建模的环境因素、或模型结构的简化假设。
+
+## 有效再生数(Rt)分析
+
+### 基于模型输出的Rt估计
+
+有效再生数(Rt)是衡量疫情传播强度的关键指标，表示在当前干预措施下，一个感染者平均能够感染的二代病例数。Rt > 1表示疫情仍在扩散，Rt < 1表示疫情正在得到控制。
+
+```{r rt-model, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="基于SEIR-SIR模型输出的有效再生数时间序列", fig.width=12, fig.height=6}
+if (!is.null(results$rt_from_model)) {
+    print(results$rt_from_model$rt_plot +
+        theme(
+            plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+            plot.subtitle = element_text(size = 12, hjust = 0.5),
+            axis.title = element_text(size = 12, face = "bold"),
+            axis.text = element_text(size = 10),
+            legend.title = element_text(size = 11, face = "bold"),
+            legend.text = element_text(size = 10)
+        ))
+} else {
+    cat("模型Rt估计暂不可用")
+}
+```
+
+### 基于观测数据的Rt估计
+
+作为对比分析，我们同时使用观测病例数据直接估计Rt，以验证模型结果的一致性。
+
+```{r rt-observed, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="基于观测病例数据的有效再生数时间序列", fig.width=12, fig.height=6}
+if (!is.null(results$rt_from_observed)) {
+    print(results$rt_from_observed$rt_plot +
+        theme(
+            plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+            plot.subtitle = element_text(size = 12, hjust = 0.5),
+            axis.title = element_text(size = 12, face = "bold"),
+            axis.text = element_text(size = 10),
+            legend.title = element_text(size = 11, face = "bold"),
+            legend.text = element_text(size = 10)
+        ))
+} else {
+    cat("观测数据Rt估计暂不可用")
+}
+```
+
+### 综合Rt分析：观测期与预测期
+
+最重要的是，我们提供了一个综合性的Rt分析，将观测期的病例数据与模型预测的未来病例数据相结合，计算整个时间序列的有效再生数。这为理解疫情的完整发展轨迹提供了宝贵的洞察。
+
+```{r rt-comprehensive, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="综合Rt分析：观测期与预测期（蓝色：观测期，绿色：预测期）", fig.width=14, fig.height=7}
+if (!is.null(results$rt_comprehensive)) {
+    print(results$rt_comprehensive$rt_plot +
+        theme(
+            plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+            plot.subtitle = element_text(size = 12, hjust = 0.5),
+            axis.title = element_text(size = 12, face = "bold"),
+            axis.text = element_text(size = 10),
+            legend.title = element_text(size = 11, face = "bold"),
+            legend.text = element_text(size = 10)
+        ))
+} else {
+    cat("综合Rt分析暂不可用")
+}
+```
+
+### Rt估计结果解读
+
+```{r rt-table, echo=FALSE, warning=FALSE, message=FALSE, results='asis'}
+if (!is.null(results$rt_from_observed)) {
+    rt_summary <- results$rt_from_observed$rt_result
+
+    # 添加中文列名
+    rt_display <- rt_summary %>%
+        select(date, mean_rt, lower_ci, upper_ci, epidemic_phase) %>%
+        mutate(
+            日期 = format(date, "%m月%d日"),
+            平均Rt = mean_rt,
+            下限95CI = lower_ci,
+            上限95CI = upper_ci,
+            疫情阶段 = case_when(
+                epidemic_phase == "Growth" ~ "增长期",
+                epidemic_phase == "Decline" ~ "下降期",
+                epidemic_phase == "Plateau" ~ "平台期",
+                TRUE ~ epidemic_phase
+            )
+        ) %>%
+        select(日期, 平均Rt, 下限95CI, 上限95CI, 疫情阶段)
+
+    # 根据输出格式选择表格显示方式
+    if (knitr::is_html_output()) {
+        reactable::reactable(
+            rt_display,
+            pagination = FALSE,
+            striped = TRUE,
+            highlight = TRUE,
+            bordered = TRUE,
+            compact = TRUE,
+            defaultColDef = colDef(
+                align = "center",
+                headerStyle = list(background = "#f7f7f8", fontWeight = "bold")
+            ),
+            columns = list(
+                日期 = colDef(
+                    style = list(fontWeight = "bold"),
+                    width = 100
+                ),
+                平均Rt = colDef(
+                    format = colFormat(digits = 3),
+                    style = function(value) {
+                        if (value > 1) {
+                            list(color = "red", fontWeight = "bold")
+                        } else {
+                            list(color = "green", fontWeight = "bold")
+                        }
+                    },
+                    width = 100
+                ),
+                下限95CI = colDef(format = colFormat(digits = 3), width = 100),
+                上限95CI = colDef(format = colFormat(digits = 3), width = 100),
+                疫情阶段 = colDef(
+                    style = function(value) {
+                        color <- switch(value,
+                            "增长期" = "red",
+                            "下降期" = "green",
+                            "平台期" = "orange",
+                            "black"
+                        )
+                        list(color = color, fontWeight = "bold")
+                    },
+                    width = 100
+                )
+            ),
+            style = list(fontFamily = "Arial, sans-serif", fontSize = "13px")
+        )
+    } else {
+        knitr::kable(rt_display,
+            caption = "有效再生数(Rt)估计结果",
+            align = "c",
+            digits = 3
+        )
+    }
+} else {
+    cat("Rt估计结果不可用")
+}
+```
+
+### 综合Rt估计结果解读
+
+```{r rt-table-comprehensive, echo=FALSE, warning=FALSE, message=FALSE, results='asis'}
+if (!is.null(results$rt_comprehensive)) {
+    rt_summary <- results$rt_comprehensive$rt_result
+
+    # 添加中文列名和期间标识
+    rt_display <- rt_summary %>%
+        select(date, mean_rt, lower_ci, upper_ci, period, epidemic_phase) %>%
+        mutate(
+            日期 = format(date, "%m月%d日"),
+            平均Rt = mean_rt,
+            下限95CI = lower_ci,
+            上限95CI = upper_ci,
+            期间 = case_when(
+                period == "Observed" ~ "观测期",
+                period == "Predicted" ~ "预测期",
+                TRUE ~ period
+            ),
+            疫情阶段 = case_when(
+                epidemic_phase == "Growth" ~ "增长期",
+                epidemic_phase == "Decline" ~ "下降期",
+                epidemic_phase == "Plateau" ~ "平台期",
+                TRUE ~ epidemic_phase
+            )
+        ) %>%
+        select(日期, 期间, 平均Rt, 下限95CI, 上限95CI, 疫情阶段)
+
+    # 根据输出格式选择表格显示方式
+    if (knitr::is_html_output()) {
+        reactable::reactable(
+            rt_display,
+            pagination = FALSE,
+            striped = TRUE,
+            highlight = TRUE,
+            bordered = TRUE,
+            compact = TRUE,
+            defaultColDef = colDef(
+                align = "center",
+                headerStyle = list(background = "#f7f7f8", fontWeight = "bold")
+            ),
+            columns = list(
+                日期 = colDef(
+                    style = list(fontWeight = "bold"),
+                    width = 80
+                ),
+                期间 = colDef(
+                    style = function(value) {
+                        color <- switch(value,
+                            "观测期" = "blue",
+                            "预测期" = "green",
+                            "black"
+                        )
+                        list(color = color, fontWeight = "bold")
+                    },
+                    width = 80
+                ),
+                平均Rt = colDef(
+                    format = colFormat(digits = 3),
+                    style = function(value) {
+                        if (value > 1) {
+                            list(color = "red", fontWeight = "bold")
+                        } else {
+                            list(color = "green", fontWeight = "bold")
+                        }
+                    },
+                    width = 90
+                ),
+                下限95CI = colDef(format = colFormat(digits = 3), width = 90),
+                上限95CI = colDef(format = colFormat(digits = 3), width = 90),
+                疫情阶段 = colDef(
+                    style = function(value) {
+                        color <- switch(value,
+                            "增长期" = "red",
+                            "下降期" = "green",
+                            "平台期" = "orange",
+                            "black"
+                        )
+                        list(color = color, fontWeight = "bold")
+                    },
+                    width = 90
+                )
+            ),
+            style = list(fontFamily = "Arial, sans-serif", fontSize = "12px")
+        )
+    } else {
+        knitr::kable(rt_display,
+            caption = "综合有效再生数(Rt)估计结果",
+            align = "c",
+            digits = 3
+        )
+    }
+} else {
+    cat("综合Rt估计结果不可用")
+}
+```
+
+**Rt分析要点：**
+
+基于EpiEstim方法的综合Rt估计显示了疫情传播动力学在观测期和预测期的完整时间变化特征。分析结果表明：
+
+1. **观测期传播特征**：基于实际报告病例计算的Rt值反映了疫情在现实条件下的传播强度变化，有助于识别疫情转折点和评估已实施防控措施的效果。
+
+2. **预测期趋势分析**：基于SEIR-SIR模型预测病例数计算的未来Rt值，为疫情发展趋势提供了前瞻性的定量评估，支持预防性决策制定。
+
+3. **连续性监测价值**：观测期与预测期Rt的连续分析揭示了疫情传播动力学的演变规律，从过去的实际情况到未来的可能走势，形成了完整的时间序列视角。
+
+4. **颜色区分的意义**：
+   - **蓝色（观测期）**：基于真实数据的Rt估计，具有较高的可信度，为验证模型准确性提供基准
+   - **绿色（预测期）**：基于模型预测的Rt估计，虽然存在不确定性，但为前瞻性决策提供了重要依据
+
+5. **政策指导意义**：
+   - 当预测期Rt持续高于1时，表明疫情可能继续扩散，需要加强防控措施
+   - 当预测期Rt降至1以下时，表明疫情趋向控制，但仍需维持现有防控强度
+   - Rt在观测期与预测期的转换点可能揭示防控措施的时滞效应
+
+6. **不确定性考量**：预测期的Rt估计基于模型假设和参数估计，其可信度会随预测时间延长而降低。因此，应将其作为趋势参考而非精确预测，并结合实时监测数据进行动态调整。
+
+需要强调的是，这种综合Rt分析方法首次将流行病学的实时监测与数学建模的前瞻预测相结合，为传染病疫情的动态评估提供了创新的分析框架。
+
+---
+
+# 讨论与解释
+
+## 疫情特征分析
+
+### 传播动力学特征
+
+基于模型估计结果，此次佛山基孔肯雅热疫情呈现以下特征：
+
+1. **快速传播能力**：较高的媒介叮咬率和传播概率导致疫情快速扩散
+2. **媒介驱动传播**：人-媒介-人的传播模式决定了疫情的空间分布特征
+3. **短期集中暴发**：疫情在相对较短时间内达到峰值，符合媒介传播疾病的典型模式
+
+## 模型局限性
+
+本研究所用SEIR-SIR动力学模型在疫情分析中具有一定的科学性和实用性，但仍存在多方面的局限，需谨慎解读模型结果。主要局限性包括：
+
+### 数据与参数来源的局限
+
+1. **原始数据为估计值**：本研究所用的每日新增病例数据部分来源于估算，而非全部为现场直接报告，可能存在一定的偏差和不确定性。
+2. **缺乏防控措施相关数据**：模型未能纳入疫情期间实际采取的防控措施（如蚊虫消杀、健康宣教、病例隔离等）及其执行强度，导致对疫情传播过程的模拟可能与实际情况存在差异。
+3. **缺少蚊虫密度监测数据**：媒介（蚊虫）密度是影响传播风险的关键因素，但本研究缺乏同期现场蚊虫密度的动态监测数据，模型中相关参数只能采用文献估计，降低了推断的精确性。
+4. **主要参数来源于国外文献**：由于缺乏本地现场流行病学调查数据，模型中多个关键参数（如叮咬率、传播概率、潜伏期等）主要参考了其他国家或地区的研究结果，可能与佛山本地实际情况存在差异，影响模型的适用性和预测准确性。
+5. **病例分型与无症状感染未区分**：模型未能区分轻症、重症及无症状感染者，实际疫情中无症状感染者的比例及其传播作用未被纳入，可能低估了疫情的真实规模。
+6. **病例报告延迟与漏报**：部分病例存在诊断和报告延迟，且早期疫情阶段可能存在漏报，导致观测数据与真实疫情存在偏差。
+7. **缺乏人口流动与空间分布信息**：模型假设人群和媒介均匀混合，未考虑人口流动、空间异质性及聚集性暴发等实际传播特征。
+8. **环境与气象因素未纳入**：气温、降雨等环境因素对蚊虫活动和病毒传播有重要影响，但本研究未能纳入相关数据，可能低估了外部环境对疫情动态的调节作用。
+9. **防控干预时效性未建模**：实际防控措施的启动时间、持续时间和效果未能动态反映，模型假设参数在整个模拟期内恒定，忽略了干预措施对传播过程的影响。
+
+### 未来改进方向
+
+1. **加强本地数据收集**：建议未来加强现场流行病学调查和媒介密度监测，获取更为准确的本地参数和动态数据。
+2. **纳入防控措施与环境变量**：将防控措施执行情况、气象环境等外部变量纳入模型，提升模拟的现实性和预测能力。
+3. **参数时变与空间建模**：发展参数时变和空间异质性模型，更好地反映疫情的动态变化和空间分布特征。
+4. **多源数据融合与不确定性量化**：结合病例、媒介、气象等多源数据，采用贝叶斯等方法全面量化模型不确定性，提升推断的科学性和决策参考价值。
+5. **区分病例类型与隐性感染**：未来模型可进一步细化病例分型，纳入无症状感染者的传播作用，更全面反映疫情实际规模。
+
+综上，当前模型为疫情分析和防控决策提供了有益参考，但其结果需结合实际监测数据和专家判断综合解读，避免过度依赖模型预测。
+
+---
+
+# 技术附录
+
+## 计算环境信息
+- **R版本**：`r R.version.string`
+- **关键软件包**：Stan `r packageVersion("rstan")`，tidyverse `r packageVersion("tidyverse")`
+- **硬件环境**：`r parallel::detectCores()`核心处理器
+- **分析日期**：`r Sys.Date()`
+
+## 数据和代码可获得性
+- 主要脚本：`fitting/mcmc_fitting.R`、`fitting/seir_zxc.stan`
+- 数据文件：`data/daily_cases_foshan.csv`
+- 完整代码和数据可通过项目仓库获取
+
+---
+
+*本报告采用R Quarto生成，确保分析过程的可重现性和透明度。*

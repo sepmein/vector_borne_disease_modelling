@@ -1,1 +1,15 @@
- 
+rstan
+tidyverse
+ggplot2
+dplyr
+tidyr
+readr
+lubridate
+posterior
+bayesplot
+tidybayes
+EpiEstim
+knitr
+reactable
+here
+quarto
