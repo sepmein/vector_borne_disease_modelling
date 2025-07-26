@@ -25,8 +25,17 @@ format:
     fig-height: 5
     fig-dpi: 300
     keep-tex: false
-    pdf-engine: pdflatex
+    pdf-engine: xelatex
     documentclass: article
+    include-in-header: |
+      \usepackage{fontspec}
+      \usepackage{xeCJK}
+      \setCJKmainfont{PingFang SC}
+      \setmainfont{Helvetica Neue}
+      \setCJKsansfont{PingFang SC}
+      \setCJKmonofont{PingFang SC}
+      \xeCJKsetup{CJKecglue={}}
+      \xeCJKsetup{CheckSingle=true}
   docx:
     toc: true
     toc-depth: 4
@@ -35,7 +44,6 @@ format:
     fig-width: 8
     fig-height: 5
     fig-dpi: 300
-    reference-doc: manuscript-template.docx
 lang: zh
 keywords: 
   - "基孔肯雅热"
@@ -61,6 +69,54 @@ library(knitr)
 library(reactable)
 library(EpiEstim)
 library(tibble)
+
+# Cross-platform font detection and setup
+setup_cross_platform_fonts <- function() {
+  # Detect operating system
+  os <- Sys.info()["sysname"]
+  
+  if (os == "Darwin") {
+    # macOS
+    chinese_font <- "PingFang SC"
+    english_font <- "Helvetica Neue"
+  } else if (os == "Windows") {
+    # Windows
+    chinese_font <- "SimSun"
+    english_font <- "Times New Roman"
+  } else {
+    # Linux and others
+    chinese_font <- "Noto Sans CJK SC"
+    english_font <- "DejaVu Sans"
+  }
+  
+  # For PDF output, use more compatible fonts
+  if (knitr::is_latex_output()) {
+    chinese_font <- "sans"
+    english_font <- "sans"
+  }
+  
+  # Set up ggplot2 theme with cross-platform fonts
+  theme_set(theme_minimal() +
+    theme(
+      text = element_text(family = english_font),
+      plot.title = element_text(family = english_font, face = "bold"),
+      plot.subtitle = element_text(family = english_font),
+      axis.title = element_text(family = english_font),
+      axis.text = element_text(family = english_font),
+      legend.title = element_text(family = english_font),
+      legend.text = element_text(family = english_font)
+    ))
+  
+  cat("Font setup for", os, ":\n")
+  cat("  Chinese font:", chinese_font, "\n")
+  cat("  English font:", english_font, "\n")
+  
+  return(list(chinese_font = chinese_font, english_font = english_font))
+}
+
+# Initialize fonts
+fonts <- setup_cross_platform_fonts()
+
 source("fitting/mcmc_fitting.R")
 daily_cases <- read_csv("data/daily_cases_foshan.csv")
 # 缓存主分析结果，加速报告渲染
@@ -219,13 +275,16 @@ ggplot(df_cases, aes(x = date, y = daily_cases, fill = case_type, color = case_t
     ) +
     theme_minimal() +
     theme(
-        axis.text.x = element_text(angle = 45, hjust = 1, size = 10),
-        axis.text.y = element_text(size = 10),
-        plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
-        plot.subtitle = element_text(size = 12, hjust = 0.5),
+        text = element_text(family = fonts$english_font),
+        axis.text.x = element_text(angle = 45, hjust = 1, size = 10, family = fonts$english_font),
+        axis.text.y = element_text(size = 10, family = fonts$english_font),
+        plot.title = element_text(size = 14, face = "bold", hjust = 0.5, family = fonts$chinese_font),
+        plot.subtitle = element_text(size = 12, hjust = 0.5, family = fonts$chinese_font),
+        axis.title = element_text(family = fonts$chinese_font),
         legend.position = "bottom",
-        legend.title = element_text(size = 11, face = "bold"),
-        legend.text = element_text(size = 10),
+        legend.title = element_text(size = 11, face = "bold", family = fonts$chinese_font),
+        legend.text = element_text(size = 10, family = fonts$chinese_font),
+        plot.caption = element_text(family = fonts$chinese_font),
         panel.grid.minor = element_blank(),
         panel.grid.major.x = element_line(linetype = "dashed", colour = "grey70")
     ) +
@@ -389,12 +448,14 @@ $$\text{cases}_t \sim \text{NegativeBinomial}(\text{incidence}_t, \phi)$$
 ```{r fig-combined-model-fit-and-prediction, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="模型拟合结果与未来预测（红点：观测数据，蓝色：模型拟合，绿色：7天预测）", fig.width=12, fig.height=7}
 print(results$plots$combined_prediction_plot +
     theme(
-        plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
-        plot.subtitle = element_text(size = 12, hjust = 0.5),
-        axis.title = element_text(size = 12, face = "bold"),
-        axis.text = element_text(size = 10),
-        legend.title = element_text(size = 11, face = "bold"),
-        legend.text = element_text(size = 10),
+        text = element_text(family = fonts$english_font),
+        plot.title = element_text(size = 16, face = "bold", hjust = 0.5, family = fonts$chinese_font),
+        plot.subtitle = element_text(size = 12, hjust = 0.5, family = fonts$chinese_font),
+        axis.title = element_text(size = 12, face = "bold", family = fonts$chinese_font),
+        axis.text = element_text(size = 10, family = fonts$english_font),
+        legend.title = element_text(size = 11, face = "bold", family = fonts$chinese_font),
+        legend.text = element_text(size = 10, family = fonts$chinese_font),
+        plot.caption = element_text(family = fonts$chinese_font),
         legend.position = "bottom"
     ) +
     labs(
@@ -559,10 +620,11 @@ for (i in 1:nrow(disease_params)) {
 ```{r fig-params-posterior-distributions, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="关键流行病学参数的后验概率分布", fig.width=12, fig.height=8}
 print(results$plots$parameter_plot +
     theme(
-        plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
-        strip.text = element_text(size = 11, face = "bold"),
-        axis.title = element_text(size = 12),
-        axis.text = element_text(size = 10)
+        text = element_text(family = fonts$english_font),
+        plot.title = element_text(size = 16, face = "bold", hjust = 0.5, family = fonts$chinese_font),
+        strip.text = element_text(size = 11, face = "bold", family = fonts$chinese_font),
+        axis.title = element_text(size = 12, family = fonts$chinese_font),
+        axis.text = element_text(size = 10, family = fonts$english_font)
     ) +
     labs(
         title = "基孔肯雅热传播动力学参数后验分布",
@@ -661,12 +723,13 @@ if (knitr::is_html_output()) {
 if (!is.null(results$rt_from_observed)) {
     print(results$rt_from_observed$rt_plot +
         theme(
-            plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
-            plot.subtitle = element_text(size = 12, hjust = 0.5),
-            axis.title = element_text(size = 12, face = "bold"),
-            axis.text = element_text(size = 10),
-            legend.title = element_text(size = 11, face = "bold"),
-            legend.text = element_text(size = 10)
+            text = element_text(family = fonts$english_font),
+            plot.title = element_text(size = 16, face = "bold", hjust = 0.5, family = fonts$chinese_font),
+            plot.subtitle = element_text(size = 12, hjust = 0.5, family = fonts$chinese_font),
+            axis.title = element_text(size = 12, face = "bold", family = fonts$chinese_font),
+            axis.text = element_text(size = 10, family = fonts$english_font),
+            legend.title = element_text(size = 11, face = "bold", family = fonts$chinese_font),
+            legend.text = element_text(size = 10, family = fonts$chinese_font)
         ))
 } else {
     cat("观测数据Rt估计暂不可用")
@@ -681,15 +744,75 @@ if (!is.null(results$rt_from_observed)) {
 if (!is.null(results$rt_comprehensive)) {
     print(results$rt_comprehensive$rt_plot +
         theme(
-            plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
-            plot.subtitle = element_text(size = 12, hjust = 0.5),
-            axis.title = element_text(size = 12, face = "bold"),
-            axis.text = element_text(size = 10),
-            legend.title = element_text(size = 11, face = "bold"),
-            legend.text = element_text(size = 10)
+            text = element_text(family = fonts$english_font),
+            plot.title = element_text(size = 16, face = "bold", hjust = 0.5, family = fonts$chinese_font),
+            plot.subtitle = element_text(size = 12, hjust = 0.5, family = fonts$chinese_font),
+            axis.title = element_text(size = 12, face = "bold", family = fonts$chinese_font),
+            axis.text = element_text(size = 10, family = fonts$english_font),
+            legend.title = element_text(size = 11, face = "bold", family = fonts$chinese_font),
+            legend.text = element_text(size = 10, family = fonts$chinese_font)
         ))
 } else {
     cat("综合Rt分析暂不可用")
+}
+```
+
+### 人传蚊与蚊传人有效再生数分析
+
+在媒介传播疾病中，有效再生数可以从两个方向进行分析：人传蚊的有效再生数（Reff (hm)）和蚊传人的有效再生数（Reff (mh)）。这种双向分析有助于我们更全面地理解传播动力学。
+
+#### 人传蚊有效再生数（Reff (hm)）
+
+人传蚊的有效再生数表示一位感染者在感染期间能够将病毒传染给多少只蚊媒。根据模型分析结果：
+
+```{r reff-hm-calculation, echo=FALSE, warning=FALSE, message=FALSE}
+if (!is.null(results$param_summaries$reff_summaries)) {
+  reff_hm <- results$param_summaries$reff_summaries$reff_hm
+  cat("**Reff (hm) =", reff_hm$formatted, "**\n")
+  cat("- **解释**：一位感染者在这一阶段能够将病毒传染给", reff_hm$mean, "只蚊媒\n")
+  cat("- **流行病学意义**：这个数值表明人传蚊的传播效率", 
+      ifelse(reff_hm$mean > 10, "很高", "较高"), 
+      "，感染者能够有效地将病毒传播给大量蚊媒，这解释了为什么基孔肯雅热能够在短时间内快速传播。\n")
+} else {
+  cat("**Reff (hm) 计算中...**\n")
+}
+```
+
+#### 蚊传人有效再生数（Reff (mh)）
+
+蚊传人的有效再生数表示一只感染蚊媒在其感染期间能够将病毒传染给多少位人类。
+
+```{r reff-mh-calculation, echo=FALSE, warning=FALSE, message=FALSE}
+if (!is.null(results$param_summaries$reff_summaries)) {
+  reff_mh <- results$param_summaries$reff_summaries$reff_mh
+  cat("**Reff (mh) =", reff_mh$formatted, "**\n")
+  cat("- **解释**：一只病蚊在这一阶段能够将病毒传染给", reff_mh$mean, "位感染者\n")
+  cat("- **流行病学意义**：虽然单只蚊媒的传播效率相对较低，但由于蚊媒数量庞大且活动频繁，整体传播风险仍然很高。\n")
+} else {
+  cat("**Reff (mh) 计算中...**\n")
+}
+```
+
+#### 传播动力学平衡
+
+这两个有效再生数的乘积决定了总体传播强度：
+
+```{r reff-total-calculation, echo=FALSE, warning=FALSE, message=FALSE}
+if (!is.null(results$param_summaries$reff_summaries)) {
+  reff_hm <- results$param_summaries$reff_summaries$reff_hm
+  reff_mh <- results$param_summaries$reff_summaries$reff_mh
+  reff_total <- results$param_summaries$reff_summaries$reff_total
+  
+  cat("- **总体传播强度**：Reff (hm) × Reff (mh) =", reff_hm$mean, "×", reff_mh$mean, "=", reff_total$formatted, "\n")
+  cat("- **传播特征**：", 
+      ifelse(reff_hm$mean > 10, "高", "中等"), "的人传蚊效率（", reff_hm$mean, "）和",
+      ifelse(reff_mh$mean > 2, "适中", "较低"), "的蚊传人效率（", reff_mh$mean, "）相结合，形成了",
+      ifelse(reff_total$mean > 50, "高效", "中等效率"), "的传播循环\n")
+  cat("- **防控启示**：控制措施应同时关注减少人传蚊（如使用驱蚊剂、减少暴露）和蚊传人（如蚊媒控制、环境管理）两个环节\n")
+} else {
+  cat("- **总体传播强度**：计算中...\n")
+  cat("- **传播特征**：分析中...\n")
+  cat("- **防控启示**：控制措施应同时关注减少人传蚊（如使用驱蚊剂、减少暴露）和蚊传人（如蚊媒控制、环境管理）两个环节\n")
 }
 ```
 

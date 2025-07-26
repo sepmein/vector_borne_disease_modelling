@@ -1,15 +1,15 @@
-# model_seir_sir.R
-# SEIR-SIR动力学模型定义与仿真
+# model_seir_sei.R
+# SEIR-sei动力学模型定义与仿真
 # Author: 
 #
-# This module defines the SEIR model for humans and SIR model for vectors (mosquitoes),
+# This module defines the SEIR model for humans and sei model for vectors (mosquitoes),
 # and provides a function to run the simulation.
 #
 # 人群：SEIR结构
-# 蚊群：SIR结构
+# 蚊群：sei结构
 #
 # 用法 Usage:
-#   result <- run_seir_sir_model(params, init, times)
+#   result <- run_seir_sei_model(params, init, times)
 #   # params: named vector of parameters
 #   # init: named vector of initial states
 #   # times: time vector

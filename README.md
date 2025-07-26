@@ -1,11 +1,11 @@
-# Vector-Borne Disease Modelling: SEIR-SIR & Rt Estimation (R)
+# Vector-Borne Disease Modelling: SEIR-SEI & Rt Estimation (R)
 
-This project provides a modular R implementation for simulating and analyzing the transmission dynamics of vector-borne diseases（如登革热、基孔肯雅热）using a coupled SEIR model for humans and SIR model for vectors, and for estimating the real-time reproduction number (Rt) using EpiEstim.
+This project provides a modular R implementation for simulating and analyzing the transmission dynamics of vector-borne diseases（如登革热、基孔肯雅热）using a coupled SEIR model for humans and SEI model for vectors, and for estimating the real-time reproduction number (Rt) using EpiEstim.
 
 ## 文件结构
 
 - `seir_dengue_model.R`         — 主脚本，包含模型调用与示例
-- `model_seir_sir.R`            — SEIR-SIR动力学模型定义
+- `model_seir_SEI.R`            — SEIR-SEI动力学模型定义
 - `fit_incubation_distribution.R` — 潜伏期分布拟合与参数提取
 - `estimate_rt_epiestim.R`      — 用EpiEstim估算Rt
 - `requirements.txt`            — 依赖R包列表
@@ -29,8 +29,8 @@ This project provides a modular R implementation for simulating and analyzing th
 3. 运行动力学模型：
 
    ```r
-   source('model_seir_sir.R')
-   # 生成人群和蚊群的SEIR-SIR仿真结果
+   source('model_seir_SEI.R')
+   # 生成人群和蚊群的SEIR-SEI仿真结果
    ```
 
 4. 估算实时再生数Rt：
@@ -48,10 +48,10 @@ This project provides a modular R implementation for simulating and analyzing th
 - 自动输出均值、标准差、shape、rate等参数
 - 结果可直接用于动力学模型参数设定
 
-### 2. SEIR-SIR动力学模型
+### 2. SEIR-SEI动力学模型
 
 - 人群：SEIR结构
-- 蚊群：SIR结构
+- 蚊群：SEI结构
 - 参数可自定义，支持与分布拟合结果联动
 - 输出各舱室人数随时间变化曲线
 

@@ -3,7 +3,7 @@
 # Main script: Vector-borne disease modelling and Rt estimation
 #
 # 1. 拟合潜伏期分布
-# 2. 运行SEIR-SIR动力学模型
+# 2. 运行SEIR-SEI动力学模型
 # 3. 估算实时再生数Rt
 
 # 加载模块
@@ -20,7 +20,7 @@ library(reshape2)
 # mean_incubation <- fit_result$mean
 # sd_incubation <- fit_result$sd
 
-# 2. 运行SEIR-SIR模型
+# 2. 运行SEIR-SEI模型
 params <- c(
   beta_hv = 0.5,    # vector->human
   beta_vh = 0.5,    # human->vector

@@ -1,8 +1,8 @@
 # ===============================================================================
-# Package Installation Script for SEIR-SIR MCMC Analysis
+# Package Installation Script for SEIR-SEI MCMC Analysis
 # ===============================================================================
 
-cat("Installing required packages for SEIR-SIR MCMC analysis...\n")
+cat("Installing required packages for SEIR-SEI MCMC analysis...\n")
 
 # List of required packages
 required_packages <- c(

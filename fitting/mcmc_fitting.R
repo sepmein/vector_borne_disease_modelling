@@ -1,5 +1,5 @@
 # ===============================================================================
-# SEIR-SIR Vector-Borne Disease Model - MCMC Fitting and Analysis
+# SEIR-SEI Vector-Borne Disease Model - MCMC Fitting and Analysis
 # ===============================================================================
 # Purpose: Bayesian inference for dengue transmission dynamics using Stan
 # Model: 7-compartment SEIR-SIR (Human: S-E-I-R, Vector: S-I-R)
@@ -851,10 +851,65 @@ extract_parameter_summaries <- function(fit) {
       full_description = paste0(parameter_name, " = ", formatted_value, unit)
     )
   
+  # Calculate effective reproduction numbers
+  # Extract parameters for Reff calculations
+  beta_draws <- draws$beta
+  beta_hv_draws <- draws$beta_hv
+  beta_vh_draws <- draws$beta_vh
+  gamma_h_draws <- draws$gamma_h
+  gamma_v_draws <- draws$gamma_v
+  vie_draws <- draws$vie
+  
+  # Calculate Reff (hm): human to mosquito transmission
+  # Reff (hm) = (beta * beta_vh * vie) / gamma_v
+  reff_hm_draws <- (beta_draws * beta_vh_draws * vie_draws) / gamma_v_draws
+  
+  # Calculate Reff (mh): mosquito to human transmission  
+  # Reff (mh) = (beta * beta_hv * vie) / gamma_h
+  reff_mh_draws <- (beta_draws * beta_hv_draws * vie_draws) / gamma_h_draws
+  
+  # Calculate overall Reff
+  reff_total_draws <- reff_hm_draws * reff_mh_draws
+  
+  # Summarize Reff values
+  reff_summaries <- list(
+    reff_hm = list(
+      mean = round(mean(reff_hm_draws), 2),
+      median = round(median(reff_hm_draws), 2),
+      q025 = round(quantile(reff_hm_draws, 0.025), 2),
+      q975 = round(quantile(reff_hm_draws, 0.975), 2),
+      formatted = sprintf("%.2f (%.2f - %.2f)", 
+                         mean(reff_hm_draws), 
+                         quantile(reff_hm_draws, 0.025), 
+                         quantile(reff_hm_draws, 0.975))
+    ),
+    reff_mh = list(
+      mean = round(mean(reff_mh_draws), 2),
+      median = round(median(reff_mh_draws), 2),
+      q025 = round(quantile(reff_mh_draws, 0.025), 2),
+      q975 = round(quantile(reff_mh_draws, 0.975), 2),
+      formatted = sprintf("%.2f (%.2f - %.2f)", 
+                         mean(reff_mh_draws), 
+                         quantile(reff_mh_draws, 0.025), 
+                         quantile(reff_mh_draws, 0.975))
+    ),
+    reff_total = list(
+      mean = round(mean(reff_total_draws), 2),
+      median = round(median(reff_total_draws), 2),
+      q025 = round(quantile(reff_total_draws, 0.025), 2),
+      q975 = round(quantile(reff_total_draws, 0.975), 2),
+      formatted = sprintf("%.2f (%.2f - %.2f)", 
+                         mean(reff_total_draws), 
+                         quantile(reff_total_draws, 0.025), 
+                         quantile(reff_total_draws, 0.975))
+    )
+  )
+  
   return(list(
     param_summaries = param_summaries,
     derived_quantities = derived_quantities,
-    param_descriptions = param_descriptions
+    param_descriptions = param_descriptions,
+    reff_summaries = reff_summaries
   ))
 }
 
@@ -934,7 +989,8 @@ main_analysis <- function() {
   cat("Analysis completed successfully!\n")
   cat("===============================================================================\n")
 
-  return(list(
+  # Save results to file
+  results <- list(
     fit = fit,
     data = data_list,
     results = analysis_results,
@@ -945,5 +1001,11 @@ main_analysis <- function() {
     rt_from_model = rt_from_model,
     rt_from_observed = rt_from_observed,
     rt_comprehensive = rt_comprehensive
-  ))
+  )
+  
+  # Save results to file
+  saveRDS(results, "fitting/model_results.rds")
+  cat("Results saved to fitting/model_results.rds\n")
+  
+  return(results)
 }

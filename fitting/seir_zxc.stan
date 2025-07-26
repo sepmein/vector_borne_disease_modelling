@@ -1,6 +1,6 @@
-// seir_sir_model.stan
+// seir_SEI_model.stan
 functions {
-  // 7-compartment SEIR-SIR model
+  // 7-compartment SEIR-SEI model
   real[] seir_sir_ode(real t,
                       real[] y,
                       real[] theta,
