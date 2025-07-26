@@ -43,3 +43,6 @@ Thumbs.db
 venv/
 MODEL_REPORT_CN_files/*
 results/*
+归档.zip
+fitting/seir_zxc.rds
+fitting/model_results_20240725.rds

@@ -37,15 +37,19 @@ set.seed(42)
 setup_data <- function() {
   cat("Loading and preprocessing epidemiological data...\n")
 
-  # Time series data - Foshan dengue outbreak 2025
-  dates <- as.Date(c(
-    "2025-07-08", "2025-07-09", "2025-07-10", "2025-07-11",
-    "2025-07-12", "2025-07-13", "2025-07-14", "2025-07-15",
-    "2025-07-16", "2025-07-17", "2025-07-18", "2025-07-19",
-    "2025-07-20", "2025-07-21", "2025-07-22"
-  ))
-  # Daily reported cases
-  cases <- c(1, 1, 3, 8, 20, 48, 116, 280, 104, 296, 393, 473, 540, 373, 536)
+  # Read data from CSV file
+  csv_file <- "data/daily_cases_foshan.csv"
+  
+  if (!file.exists(csv_file)) {
+    stop("CSV file not found: ", csv_file)
+  }
+  
+  # Read the CSV file
+  data_df <- read.csv(csv_file, stringsAsFactors = FALSE)
+  
+  # Convert date column to Date format
+  dates <- as.Date(data_df$date)
+  cases <- data_df$daily_cases
 
   # Basic statistics
   cat(sprintf(
@@ -106,7 +110,7 @@ setup_model_parameters <- function() {
 # ===============================================================================
 
 # Run MCMC sampling using Stan
-run_mcmc_inference <- function(stan_data, n_iter = 2000, n_chains = 8,
+run_mcmc_inference <- function(stan_data, n_iter = 2000, n_chains = 4,
                                adapt_delta = 0.99, max_treedepth = 15) {
   cat("Starting Bayesian inference with Stan...\n")
   cat(sprintf("Chains: %d, Iterations: %d per chain\n", n_chains, n_iter))
@@ -782,6 +786,79 @@ calculate_rt_from_observed <- function(data_list) {
 }
 
 # ===============================================================================
+# 8. PARAMETER EXTRACTION FOR REPORTING
+# ===============================================================================
+
+# Extract parameter summaries for reporting
+extract_parameter_summaries <- function(fit) {
+  cat("\n=== Extracting Parameter Summaries for Reporting ===\n")
+  
+  # Key epidemiological parameters
+  key_params <- c("beta", "beta_hv", "sigma_h", "gamma_h", "vie", "beta_vh", "gamma_v", "phi")
+  
+  # Extract draws
+  draws <- as_draws_df(fit)
+  
+  # Calculate parameter summaries
+  param_summaries <- draws %>%
+    select(all_of(key_params)) %>%
+    summarise(
+      across(everything(), list(
+        mean = ~ round(mean(.x), 3),
+        median = ~ round(median(.x), 3),
+        sd = ~ round(sd(.x), 3),
+        q025 = ~ round(quantile(.x, 0.025), 3),
+        q975 = ~ round(quantile(.x, 0.975), 3)
+      ))
+    ) %>%
+    pivot_longer(everything(), 
+                names_to = c("parameter", "statistic"), 
+                names_pattern = "(.+)_(.+)") %>%
+    pivot_wider(names_from = statistic, values_from = value)
+  
+  # Calculate derived quantities
+  derived_quantities <- param_summaries %>%
+    filter(parameter %in% c("sigma_h", "gamma_h")) %>%
+    mutate(
+      parameter_name = case_when(
+        parameter == "sigma_h" ~ "incubation_period",
+        parameter == "gamma_h" ~ "infectious_period"
+      ),
+      mean_days = round(1 / mean, 1),
+      q025_days = round(1 / q975, 1),  # Note: inverse relationship
+      q975_days = round(1 / q025, 1)   # Note: inverse relationship
+    )
+  
+  # Create formatted parameter descriptions
+  param_descriptions <- param_summaries %>%
+    mutate(
+      parameter_name = case_when(
+        parameter == "beta" ~ "蚊虫叮咬率（β）",
+        parameter == "beta_hv" ~ "媒介传人概率（β_hv）",
+        parameter == "beta_vh" ~ "人传媒介概率（β_vh）",
+        parameter == "sigma_h" ~ "潜伏期转换率（σ_h）",
+        parameter == "gamma_h" ~ "人群康复率（γ_h）",
+        parameter == "vie" ~ "人-媒介接触率（vie）",
+        parameter == "gamma_v" ~ "媒介康复率（γ_v）",
+        parameter == "phi" ~ "过度离散参数（φ）"
+      ),
+      formatted_value = sprintf("%.3f (%.3f - %.3f)", mean, q025, q975),
+      unit = case_when(
+        parameter %in% c("beta", "sigma_h", "gamma_h", "gamma_v") ~ "/天",
+        parameter %in% c("beta_hv", "beta_vh", "vie") ~ "",
+        parameter == "phi" ~ ""
+      ),
+      full_description = paste0(parameter_name, " = ", formatted_value, unit)
+    )
+  
+  return(list(
+    param_summaries = param_summaries,
+    derived_quantities = derived_quantities,
+    param_descriptions = param_descriptions
+  ))
+}
+
+# ===============================================================================
 # 7. MAIN EXECUTION WORKFLOW
 # ===============================================================================
 
@@ -822,6 +899,9 @@ main_analysis <- function() {
 
   # Step 5: Analyze results
   analysis_results <- analyze_parameters(fit)
+  
+  # Step 5.5: Extract parameter summaries for reporting
+  param_summaries <- extract_parameter_summaries(fit)
 
   # Step 6: Create visualizations
   plots <- create_model_plots(fit, data_list)
@@ -858,6 +938,7 @@ main_analysis <- function() {
     fit = fit,
     data = data_list,
     results = analysis_results,
+    param_summaries = param_summaries,
     plots = plots,
     diagnostics = diagnostics,
     convergence = convergence_analysis,

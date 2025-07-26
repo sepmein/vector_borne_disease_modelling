@@ -1,7 +1,6 @@
 ---
-title: "佛山基孔肯雅热暴发的SEIR-SIR媒介传染病建模报告"
+title: "佛山基孔肯雅热暴发的SEIR-SEI媒介传染病建模报告"
 subtitle: "基于贝叶斯推断的传播动力学分析与预测"
-author: "张春哲，付梅花，陈胤孜"
 date: "`r Sys.Date()`"
 format:
   html:
@@ -40,7 +39,7 @@ format:
 lang: zh
 keywords: 
   - "基孔肯雅热"
-  - "SEIR-SIR模型" 
+  - "SEIR-SEI模型" 
   - "贝叶斯推断"
   - "有效再生数"
   - "疫情预测"
@@ -50,14 +49,12 @@ keywords:
 abstract: |
   **背景**: 基孔肯雅热作为重要的蚊媒传播疾病，在全球范围内呈扩散趋势，对公共卫生构成严重威胁。准确的传播动力学建模对于疫情预测和防控决策至关重要，但现有模型在处理媒介传播的复杂性和实时预测方面存在局限。
   
-  **方法**: 基于2025年7月佛山市基孔肯雅热暴发数据，构建了SEIR-SEIR耦合模型，同时描述人群（易感-潜伏-感染-康复）和媒介（易感-潜伏-感染）传播动力学。采用贝叶斯马尔可夫链蒙特卡罗(MCMC)方法进行参数推断，使用EpiEstim方法估计有效再生数(Rt)，并实现观测期与预测期的连续Rt分析。
-  
-  **结果**: 模型成功拟合了疫情发展轨迹（贝叶斯R²=0.683），估计基本再生数R₀约为2.1-2.8。观测期Rt从初期的2.5逐步下降至1.2，预测期Rt继续下降趋势但仍维持在1.0以上。7天前瞻性预测显示日新增病例数将在200-400例区间波动。关键传播参数包括媒介叮咬率(β=0.514/天)和人-媒介传播概率(β_hv=0.294)。
-  
+  **方法**: 基于2025年7月佛山市基孔肯雅热暴发数据，构建了SEIR-SEI耦合模型，同时描述人群（易感-潜伏-感染-康复）和媒介（易感-潜伏-感染）传播动力学。采用贝叶斯马尔可夫链蒙特卡罗(MCMC)方法进行参数推断，使用EpiEstim方法估计有效再生数(Rt)，并实现观测期与预测期的连续Rt分析。
+    
   **结论**: 本研究首次实现了基孔肯雅热传播的观测-预测一体化Rt分析框架，为实时疫情评估提供了创新方法。模型预测表明疫情传播强度有所缓解但仍需持续监控。研究结果可为类似媒介传播疾病的建模和防控策略制定提供科学依据。
 ---
 
-```{r setup, echo=FALSE, warning=FALSE, message=FALSE, results='hide'}
+```{r setup-load-libraries-and-data, echo=FALSE, warning=FALSE, message=FALSE, results='hide'}
 library(tidyverse)
 library(ggplot2)
 library(knitr)
@@ -65,6 +62,7 @@ library(reactable)
 library(EpiEstim)
 library(tibble)
 source("fitting/mcmc_fitting.R")
+daily_cases <- read_csv("data/daily_cases_foshan.csv")
 # 缓存主分析结果，加速报告渲染
 if (file.exists("fitting/model_results.rds")) {
     results <- readRDS("fitting/model_results.rds")
@@ -76,6 +74,37 @@ if (file.exists("fitting/model_results.rds")) {
 
 # 引言
 
+## 动态摘要
+
+```{r dynamic-abstract-extract-model-results, echo=FALSE, warning=FALSE, message=FALSE, results='asis'}
+cat("**动态摘要结果（基于实际模型拟合）：**\n\n")
+
+# 提取关键结果
+r_squared_median <- round(median(results$diagnostics$r_squared), 3)
+r_squared_ci <- paste0(round(quantile(results$diagnostics$r_squared, 0.025), 3), " - ", 
+                       round(quantile(results$diagnostics$r_squared, 0.975), 3))
+
+# Rt 结果
+rt_initial <- round(results$rt_from_model$rt_result$mean_rt[1], 2)
+rt_final <- round(tail(results$rt_from_model$rt_result$mean_rt, 1), 3)
+rt_predicted_min <- round(min(results$rt_comprehensive$rt_result$mean_rt[results$rt_comprehensive$rt_result$period == "Predicted"]), 2)
+
+# 预测结果
+pred_min <- round(min(results$plots$future_prediction_summary$median), 0)
+pred_max <- round(max(results$plots$future_prediction_summary$median), 0)
+
+# 参数结果
+beta_mean <- round(results$param_summaries$param_summaries$mean[results$param_summaries$param_summaries$parameter == "beta"], 3)
+beta_hv_mean <- round(results$param_summaries$param_summaries$mean[results$param_summaries$param_summaries$parameter == "beta_hv"], 3)
+
+cat("**模型拟合结果：**\n\n")
+cat("- 贝叶斯R² =", r_squared_median, "(", r_squared_ci, ")\n\n")
+cat("- 观测期Rt：从", rt_initial, "下降至", rt_final, "\n\n")
+cat("- 预测期Rt：维持在", rt_predicted_min, "以上\n\n")
+cat("- 7天预测：日新增病例", pred_min, "-", pred_max, "例\n\n")
+cat("- 关键参数：β =", beta_mean, "/天，β_hv =", beta_hv_mean, "\n\n")
+```
+
 ## 研究背景
 
 基孔肯雅热（Chikungunya fever）是一种由基孔肯雅病毒（CHIKV）引起的急性发热性疾病，主要通过埃及伊蚊和白纹伊蚊传播。该病最初于1952年在坦桑尼亚被发现，近年来在全球范围内呈现扩散趋势，已成为重要的公共卫生威胁。
@@ -84,7 +113,7 @@ if (file.exists("fitting/model_results.rds")) {
 
 ## 研究目的
 
-2025年7月，佛山市报告了基孔肯雅热病例的聚集性暴发。为了深入理解此次疫情的传播规律，评估疫情发展趋势，并为公共卫生决策提供科学依据，本研究采用数学建模方法，构建SEIR-SIR媒介传染病模型，对佛山基孔肯雅热疫情进行定量分析。
+2025年7月，佛山市报告了基孔肯雅热病例的聚集性暴发。为了深入理解此次疫情的传播规律，评估疫情发展趋势，并为公共卫生决策提供科学依据，本研究采用数学建模方法，构建SEIR-SEI媒介传染病模型，对佛山基孔肯雅热疫情进行定量分析。
 
 ## 研究意义
 
@@ -97,7 +126,7 @@ if (file.exists("fitting/model_results.rds")) {
 ## 研究数据
 
 ### 数据来源与质量
-本研究使用的数据来源于佛山市疾病预防控制中心的疫情监测系统。数据涵盖2025年7月8日至7月22日期间的每日新增确诊病例数，观测期共15天。
+本研究使用的数据来源于佛山市卫生健康委公开的数据。数据涵盖2025年7月15日，7月19日至7月24日期间的每日累计病例数，观测期共17天。
 
 **人口学特征：**
 
@@ -109,7 +138,7 @@ if (file.exists("fitting/model_results.rds")) {
 
 ### 数据特征分析
 
-```{r data-describe, echo=FALSE, warning=FALSE, message=FALSE, results='asis'}
+```{r data-describe-summary-statistics, echo=FALSE, warning=FALSE, message=FALSE, results='asis'}
 library(readr)
 library(dplyr)
 library(ggplot2)
@@ -158,12 +187,12 @@ if (knitr::is_html_output()) {
 
 为了提高分析的准确性，我们对病例数据进行了分类标注，区分观测病例和估计病例：
 
-```{r data-timeseries, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="佛山基孔肯雅热疫情流行曲线（蓝色为确认观测病例，橙色为估计补报病例）", fig.width=10, fig.height=6}
+```{r data-timeseries-epidemic-curve-plot, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="佛山基孔肯雅热疫情流行曲线（蓝色为确认观测病例，橙色为估计补报病例）", fig.width=10, fig.height=6}
 # 标记观测与估计病例
 df_cases <- df_cases %>%
     mutate(
         case_type = case_when(
-            date < as.Date("2025-07-14") ~ "估计病例",
+            date < as.Date("2025-07-15") ~ "估计病例",
             date %in% as.Date(c("2025-07-16", "2025-07-17", "2025-07-18", "2025-07-19")) ~ "估计病例",
             TRUE ~ "确认病例" # 其他日期为观测病例
         )
@@ -207,7 +236,7 @@ ggplot(df_cases, aes(x = date, y = daily_cases, fill = case_type, color = case_t
     )
 ```
 
-流行曲线显示，疫情在7月15日达到峰值（280例），随后出现波动。部分日期的病例数标记为估计值，这反映了疫情监测中可能存在的报告延迟或检测能力限制，这种数据质量标注有助于提高模型拟合的准确性。
+流行曲线显示，疫情在7月24日达到峰值（536例），随后出现波动。部分日期的病例数标记为估计值，这反映了疫情监测中可能存在的报告延迟或检测能力限制，这种数据质量标注有助于提高模型拟合的准确性。
 
 ---
 
@@ -215,7 +244,7 @@ ggplot(df_cases, aes(x = date, y = daily_cases, fill = case_type, color = case_t
 
 ### 模型选择与理论基础
 
-基孔肯雅热作为典型的媒介传播疾病，其传播涉及人群和媒介（伊蚊）两个宿主群体。考虑到疾病的自然史特征和传播机制，本研究采用SEIR-SIR分室模型框架，该模型能够：
+基孔肯雅热作为典型的媒介传播疾病，其传播涉及人群和媒介（伊蚊）两个宿主群体。考虑到疾病的自然史特征和传播机制，本研究采用SEIR-SEI分室模型框架，该模型能够：
 
 1. **准确描述疾病自然史**：区分潜伏期和感染期，符合基孔肯雅热的病理特征。
 2. **刻画媒介传播机制**：明确建模人-媒介-人的传播路径。
@@ -224,7 +253,7 @@ ggplot(df_cases, aes(x = date, y = daily_cases, fill = case_type, color = case_t
 
 ### 模型结构
 
-```{mermaid}
+```{mermaid model-structure-flowchart}
 flowchart LR
   SH["人群易感<br/>(S_h)"]
   EH["人群潜伏<br/>(E_h)"]
@@ -350,14 +379,14 @@ $$\text{cases}_t \sim \text{NegativeBinomial}(\text{incidence}_t, \phi)$$
 
 ### 未来疫情发展趋势预测
 
-基于SEIR-SIR模型的贝叶斯推断框架，本研究对2025年7月23日至29日的疫情发展态势进行了定量预测分析。模型预测显示，未来一周内基孔肯雅热疫情仍将呈现逐步扩散的总体趋势，日新增病例数较观测期峰值（540例）预计有所上升，疫情传播风险仍然存在。
+基于SEIR-SEI模型的贝叶斯推断框架，本研究对{r max(daily_cases$date)}后7日的疫情发展态势进行了定量预测分析。模型预测显示，未来一周内基孔肯雅热疫情仍将呈现逐步扩散的总体趋势，日新增病例数较观测期峰值预计有所上升，疫情传播风险仍然存在。
 
-预测结果的中位数估计表明，未来7天内日新增病例数将维持在200至600例的水平区间，疫情强度相比近期有所上升。然而，95%后验可信区间分析揭示了预测结果的显著不确定性：在最为乐观的情形下（2.5%分位数），日新增病例数可能降至100至150例；而在最为保守的估计中（97.5%分位数），日新增病例数仍可能维持在500至600例的较高水平。
+预测结果的中位数估计表明，未来7天内日新增病例数将维持在200至600例的水平区间。然而，95%后验可信区间分析揭示了预测结果的显著不确定性：在最为乐观的情形下（2.5%分位数），日新增病例数可能降至100至150例；而在最为保守的估计中（97.5%分位数），日新增病例数仍可能维持在500至600例的较高水平。
 
 预测不确定性的存在反映了传染病传播动力学的内在复杂性。主要不确定性来源包括：（1）模型参数估计的统计误差；（2）疫情发展过程中的随机波动；（3）环境因素、人群行为变化等未建模变量的影响；（4）观测数据质量和报告延迟的系统性偏差。随着预测时间窗口的延长，累积不确定性呈递增趋势，这是传染病数学建模领域的普遍现象。
 
 
-```{r fig-combined, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="模型拟合结果与未来预测（红点：观测数据，蓝色：模型拟合，绿色：7天预测）", fig.width=12, fig.height=7}
+```{r fig-combined-model-fit-and-prediction, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="模型拟合结果与未来预测（红点：观测数据，蓝色：模型拟合，绿色：7天预测）", fig.width=12, fig.height=7}
 print(results$plots$combined_prediction_plot +
     theme(
         plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
@@ -370,16 +399,16 @@ print(results$plots$combined_prediction_plot +
     ) +
     labs(
         title = "基孔肯雅热疫情动态拟合与预测分析",
-        subtitle = "SEIR-SIR模型拟合结果及7天前瞻性预测（2025年7月8日-7月29日）",
+        subtitle = "SEIR-SEI模型拟合结果及7天前瞻性预测（2025年7月8日-7月29日）",
         caption = "注：深色区域为50%置信区间，浅色区域为95%置信区间"
     ))
 ```
 
-从拟合结果可以看出，SEIR-SIR模型较好地重现了疫情的发展轨迹，模型预测的置信区间包含了绝大部分观测点，显示出良好的拟合效果。
+从拟合结果可以看出，SEIR-SEI模型较好地重现了疫情的发展轨迹，模型预测的置信区间包含了绝大部分观测点，显示出良好的拟合效果。
 
 ### 预测精度与模型验证
 
-本研究采用的SEIR-SIR贝叶斯建模方法在传染病疫情预测领域具有良好的理论基础和实践验证。模型通过整合流行病学机制知识与统计推断方法，能够在有限观测数据条件下对疫情发展趋势进行合理预测。预测结果的可信区间宽度适中，既体现了模型对未来不确定性的审慎态度，又为决策制定提供了有价值的定量信息。
+本研究采用的SEIR-SEI贝叶斯建模方法在传染病疫情预测领域具有良好的理论基础和实践验证。模型通过整合流行病学机制知识与统计推断方法，能够在有限观测数据条件下对疫情发展趋势进行合理预测。预测结果的可信区间宽度适中，既体现了模型对未来不确定性的审慎态度，又为决策制定提供了有价值的定量信息。
 
 模型预测的时间精度为7天，这一预测窗口长度在传染病应急响应中具有重要的实用价值。短期预测结果可为医疗资源调配、防控措施调整、公众健康教育等关键决策提供及时支撑。同时，7天预测窗口也符合传染病传播动力学模型的可靠性边界，避免了长期预测中不确定性过度积累的问题。
 
@@ -391,7 +420,7 @@ print(results$plots$combined_prediction_plot +
 
 通过贝叶斯MCMC采样，我们获得了各关键参数的后验分布。参数估计结果为理解疫情传播机制和制定防控策略提供了定量依据。
 
-```{r tbl-params, echo=FALSE, warning=FALSE, message=FALSE, results='asis'}
+```{r tbl-params-parameter-summary-table, echo=FALSE, warning=FALSE, message=FALSE, results='asis'}
 # 参数含义（参考seir_zxc.stan注释）
 param_info <- tibble::tibble(
     参数 = c("beta", "beta_hv", "sigma_h", "gamma_h", "vie", "beta_vh", "gamma_v", "phi"),
@@ -492,18 +521,42 @@ if (knitr::is_html_output()) {
 
 **传播强度参数：**
 
-- 蚊虫叮咬率（β = 0.514/天）表明媒介具有较高的活跃度
-- 媒介传人概率（β_hv = 0.294）显示感染媒介有约30%的概率成功传播病毒
-- 人传媒介概率（β_vh = 0.312）反映病毒由人群传播至媒介的潜力
+```{r transmission-parameters-description, echo=FALSE, warning=FALSE, message=FALSE}
+# Extract parameter descriptions for transmission parameters
+transmission_params <- results$param_summaries$param_descriptions %>%
+  filter(parameter %in% c("beta", "beta_hv", "beta_vh"))
+
+for (i in 1:nrow(transmission_params)) {
+  param <- transmission_params[i, ]
+  cat("- ", param$full_description, "\n")
+}
+```
 
 **疾病进程参数：**
 
-- 潜伏期转换率（σ_h = 0.038/天）对应约26天的潜伏期，略长于文献报告的2-12天
-- 人群康复率（γ_h = 0.100/天）对应约10天的感染期，符合基孔肯雅热的临床特征
+```{r disease-progression-parameters-description, echo=FALSE, warning=FALSE, message=FALSE}
+# Extract parameter descriptions for disease progression parameters
+disease_params <- results$param_summaries$param_descriptions %>%
+  filter(parameter %in% c("sigma_h", "gamma_h"))
+
+# Get derived quantities for interpretation
+derived <- results$param_summaries$derived_quantities
+
+for (i in 1:nrow(disease_params)) {
+  param <- disease_params[i, ]
+  derived_param <- derived[derived$parameter == param$parameter, ]
+  
+  if (param$parameter == "sigma_h") {
+    cat("- ", param$full_description, " 对应约", derived_param$mean_days, "天的潜伏期\n")
+  } else if (param$parameter == "gamma_h") {
+    cat("- ", param$full_description, " 对应约", derived_param$mean_days, "天的感染期\n")
+  }
+}
+```
 
 ## 参数后验分布分析
 
-```{r fig-params, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="关键流行病学参数的后验概率分布", fig.width=12, fig.height=8}
+```{r fig-params-posterior-distributions, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="关键流行病学参数的后验概率分布", fig.width=12, fig.height=8}
 print(results$plots$parameter_plot +
     theme(
         plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
@@ -525,7 +578,7 @@ print(results$plots$parameter_plot +
 
 ### 拟合优度指标
 
-```{r tbl-diagnostics, echo=FALSE, warning=FALSE, message=FALSE, results='asis'}
+```{r tbl-diagnostics-model-fit-indicators, echo=FALSE, warning=FALSE, message=FALSE, results='asis'}
 diagnostics <- results$diagnostics
 df_diag <- data.frame(
     指标 = c("贝叶斯R²", "均方根误差(RMSE)", "平均绝对误差(MAE)"),
@@ -600,31 +653,11 @@ if (knitr::is_html_output()) {
 
 ## 有效再生数(Rt)分析
 
-### 基于模型输出的Rt估计
-
-有效再生数(Rt)是衡量疫情传播强度的关键指标，表示在当前干预措施下，一个感染者平均能够感染的二代病例数。Rt > 1表示疫情仍在扩散，Rt < 1表示疫情正在得到控制。
-
-```{r rt-model, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="基于SEIR-SIR模型输出的有效再生数时间序列", fig.width=12, fig.height=6}
-if (!is.null(results$rt_from_model)) {
-    print(results$rt_from_model$rt_plot +
-        theme(
-            plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
-            plot.subtitle = element_text(size = 12, hjust = 0.5),
-            axis.title = element_text(size = 12, face = "bold"),
-            axis.text = element_text(size = 10),
-            legend.title = element_text(size = 11, face = "bold"),
-            legend.text = element_text(size = 10)
-        ))
-} else {
-    cat("模型Rt估计暂不可用")
-}
-```
-
 ### 基于观测数据的Rt估计
 
 作为对比分析，我们同时使用观测病例数据直接估计Rt，以验证模型结果的一致性。
 
-```{r rt-observed, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="基于观测病例数据的有效再生数时间序列", fig.width=12, fig.height=6}
+```{r rt-observed-observed-data-rt-plot, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="基于观测病例数据的有效再生数时间序列", fig.width=12, fig.height=6}
 if (!is.null(results$rt_from_observed)) {
     print(results$rt_from_observed$rt_plot +
         theme(
@@ -644,7 +677,7 @@ if (!is.null(results$rt_from_observed)) {
 
 最重要的是，我们提供了一个综合性的Rt分析，将观测期的病例数据与模型预测的未来病例数据相结合，计算整个时间序列的有效再生数。这为理解疫情的完整发展轨迹提供了宝贵的洞察。
 
-```{r rt-comprehensive, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="综合Rt分析：观测期与预测期（蓝色：观测期，绿色：预测期）", fig.width=14, fig.height=7}
+```{r rt-comprehensive-observed-and-predicted-rt-plot, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="综合Rt分析：观测期与预测期（蓝色：观测期，绿色：预测期）", fig.width=14, fig.height=7}
 if (!is.null(results$rt_comprehensive)) {
     print(results$rt_comprehensive$rt_plot +
         theme(
@@ -662,7 +695,7 @@ if (!is.null(results$rt_comprehensive)) {
 
 ### Rt估计结果解读
 
-```{r rt-table, echo=FALSE, warning=FALSE, message=FALSE, results='asis'}
+```{r rt-table-observed-rt-summary, echo=FALSE, warning=FALSE, message=FALSE, results='asis'}
 if (!is.null(results$rt_from_observed)) {
     rt_summary <- results$rt_from_observed$rt_result
 
@@ -743,7 +776,7 @@ if (!is.null(results$rt_from_observed)) {
 
 ### 综合Rt估计结果解读
 
-```{r rt-table-comprehensive, echo=FALSE, warning=FALSE, message=FALSE, results='asis'}
+```{r rt-table-comprehensive-rt-summary-with-predictions, echo=FALSE, warning=FALSE, message=FALSE, results='asis'}
 if (!is.null(results$rt_comprehensive)) {
     rt_summary <- results$rt_comprehensive$rt_result
 
@@ -844,7 +877,7 @@ if (!is.null(results$rt_comprehensive)) {
 
 1. **观测期传播特征**：基于实际报告病例计算的Rt值反映了疫情在现实条件下的传播强度变化，有助于识别疫情转折点和评估已实施防控措施的效果。
 
-2. **预测期趋势分析**：基于SEIR-SIR模型预测病例数计算的未来Rt值，为疫情发展趋势提供了前瞻性的定量评估，支持预防性决策制定。
+2. **预测期趋势分析**：基于SEIR-SEI模型预测病例数计算的未来Rt值，为疫情发展趋势提供了前瞻性的定量评估，支持预防性决策制定。
 
 3. **连续性监测价值**：观测期与预测期Rt的连续分析揭示了疫情传播动力学的演变规律，从过去的实际情况到未来的可能走势，形成了完整的时间序列视角。
 
@@ -877,7 +910,7 @@ if (!is.null(results$rt_comprehensive)) {
 
 ## 模型局限性
 
-本研究所用SEIR-SIR动力学模型在疫情分析中具有一定的科学性和实用性，但仍存在多方面的局限，需谨慎解读模型结果。主要局限性包括：
+本研究所用SEIR-SEI动力学模型在疫情分析中具有一定的科学性和实用性，但仍存在多方面的局限，需谨慎解读模型结果。主要局限性包括：
 
 ### 数据与参数来源的局限
 
@@ -907,7 +940,7 @@ if (!is.null(results$rt_comprehensive)) {
 
 ## 计算环境信息
 - **R版本**：`r R.version.string`
-- **关键软件包**：Stan `r packageVersion("rstan")`，tidyverse `r packageVersion("tidyverse")`
+- **关键软件包**：Stan `r packageVersion("rstan")`，tidyverse `r packageVersion("tidyverse")`，ggplot2 `r packageVersion("ggplot2")`，knitr `r packageVersion("knitr")`，reactable `r packageVersion("reactable")`，EpiEstim `r packageVersion("EpiEstim")`，tibble `r packageVersion("tibble")`
 - **硬件环境**：`r parallel::detectCores()`核心处理器
 - **分析日期**：`r Sys.Date()`
 
