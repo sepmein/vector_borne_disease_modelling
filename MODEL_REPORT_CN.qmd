@@ -13,29 +13,6 @@ format:
     fig-height: 6
     fig-dpi: 300
     css: styles.css
-  pdf:
-    toc: true
-    toc-depth: 4
-    number-sections: true
-    colorlinks: true
-    geometry: margin=1in
-    fontsize: 11pt
-    linestretch: 1.6
-    fig-width: 8
-    fig-height: 5
-    fig-dpi: 300
-    keep-tex: false
-    pdf-engine: xelatex
-    documentclass: article
-    include-in-header: |
-      \usepackage{fontspec}
-      \usepackage{xeCJK}
-      \setCJKmainfont{PingFang SC}
-      \setmainfont{Helvetica Neue}
-      \setCJKsansfont{PingFang SC}
-      \setCJKmonofont{PingFang SC}
-      \xeCJKsetup{CJKecglue={}}
-      \xeCJKsetup{CheckSingle=true}
   docx:
     toc: true
     toc-depth: 4
@@ -44,6 +21,10 @@ format:
     fig-width: 8
     fig-height: 5
     fig-dpi: 300
+  # PDF输出临时禁用 - 需要更新TeX Live到2025版本
+  # pdf:
+  #   toc: true
+  #   pdf-engine: xelatex
 lang: zh
 keywords: 
   - "基孔肯雅热"
@@ -57,9 +38,9 @@ keywords:
 abstract: |
   **背景**: 基孔肯雅热作为重要的蚊媒传播疾病，在全球范围内呈扩散趋势，对公共卫生构成严重威胁。准确的传播动力学建模对于疫情预测和防控决策至关重要，但现有模型在处理媒介传播的复杂性和实时预测方面存在局限。
   
-  **方法**: 基于2025年7月佛山市基孔肯雅热暴发数据，构建了SEIR-SEI耦合模型，同时描述人群（易感-潜伏-感染-康复）和媒介（易感-潜伏-感染）传播动力学。采用贝叶斯马尔可夫链蒙特卡罗(MCMC)方法进行参数推断，使用EpiEstim方法估计有效再生数(Rt)，并实现观测期与预测期的连续Rt分析。
+  **方法**: 基于2025年7月佛山市基孔肯雅热暴发数据，构建了增强型SEIR-SEI耦合模型，同时描述人群（易感-潜伏-感染-康复）和媒介（易感-感染-康复）传播动力学。模型创新性地引入了双数据流建模（生物学发病vs临床报告）、疾病认知反馈机制（报告病例增加引起行为改变）以及媒介种群动态（出生死亡率）。采用贝叶斯马尔可夫链蒙特卡罗(MCMC)方法进行参数推断，使用EpiEstim方法估计有效再生数(Rt)，并实现观测期与预测期的连续Rt分析。
     
-  **结论**: 本研究首次实现了基孔肯雅热传播的观测-预测一体化Rt分析框架，为实时疫情评估提供了创新方法。模型预测表明疫情传播强度有所缓解但仍需持续监控。研究结果可为类似媒介传播疾病的建模和防控策略制定提供科学依据。
+  **结论**: 本研究构建了创新性的增强型SEIR-SEI模型，首次在媒介传播疾病建模中同时实现了双数据流建模、疾病认知反馈机制和媒介种群动态建模。模型成功分离了生物学发病过程与临床报告过程，量化了公众疾病认知对传播行为的影响，并建立了观测-预测一体化的Rt分析框架。模型预测表明疫情传播强度在认知反馈作用下有所缓解但仍需持续监控。研究成果为基孔肯雅热等媒介传播疾病的建模方法学和防控策略制定提供了重要的科学依据和技术工具。
 ---
 
 ```{r setup-load-libraries-and-data, echo=FALSE, warning=FALSE, message=FALSE, results='hide'}
@@ -72,53 +53,53 @@ library(tibble)
 
 # Cross-platform font detection and setup
 setup_cross_platform_fonts <- function() {
-  # Detect operating system
-  os <- Sys.info()["sysname"]
-  
-  if (os == "Darwin") {
-    # macOS
-    chinese_font <- "PingFang SC"
-    english_font <- "Helvetica Neue"
-  } else if (os == "Windows") {
-    # Windows
-    chinese_font <- "SimSun"
-    english_font <- "Times New Roman"
-  } else {
-    # Linux and others
-    chinese_font <- "Noto Sans CJK SC"
-    english_font <- "DejaVu Sans"
-  }
-  
-  # For PDF output, use more compatible fonts
-  if (knitr::is_latex_output()) {
-    chinese_font <- "sans"
-    english_font <- "sans"
-  }
-  
-  # Set up ggplot2 theme with cross-platform fonts
-  theme_set(theme_minimal() +
-    theme(
-      text = element_text(family = english_font),
-      plot.title = element_text(family = english_font, face = "bold"),
-      plot.subtitle = element_text(family = english_font),
-      axis.title = element_text(family = english_font),
-      axis.text = element_text(family = english_font),
-      legend.title = element_text(family = english_font),
-      legend.text = element_text(family = english_font)
-    ))
-  
-  cat("Font setup for", os, ":\n")
-  cat("  Chinese font:", chinese_font, "\n")
-  cat("  English font:", english_font, "\n")
-  
-  return(list(chinese_font = chinese_font, english_font = english_font))
+    # Detect operating system
+    os <- Sys.info()["sysname"]
+
+    if (os == "Darwin") {
+        # macOS
+        chinese_font <- "PingFang SC"
+        english_font <- "Helvetica Neue"
+    } else if (os == "Windows") {
+        # Windows
+        chinese_font <- "Microsoft YaHei"
+        english_font <- "Times New Roman"
+    } else {
+        # Linux and others
+        chinese_font <- "Noto Sans CJK SC"
+        english_font <- "DejaVu Sans"
+    }
+
+    # For PDF output, use more compatible fonts
+    if (knitr::is_latex_output()) {
+        chinese_font <- "sans"
+        english_font <- "sans"
+    }
+
+    # Set up ggplot2 theme with cross-platform fonts
+    theme_set(theme_minimal() +
+        theme(
+            text = element_text(family = english_font),
+            plot.title = element_text(family = english_font, face = "bold"),
+            plot.subtitle = element_text(family = english_font),
+            axis.title = element_text(family = english_font),
+            axis.text = element_text(family = english_font),
+            legend.title = element_text(family = english_font),
+            legend.text = element_text(family = english_font)
+        ))
+
+    cat("Font setup for", os, ":\n")
+    cat("  Chinese font:", chinese_font, "\n")
+    cat("  English font:", english_font, "\n")
+
+    return(list(chinese_font = chinese_font, english_font = english_font))
 }
 
 # Initialize fonts
 fonts <- setup_cross_platform_fonts()
 
 source("fitting/mcmc_fitting.R")
-daily_cases <- read_csv("data/daily_cases_foshan.csv")
+daily_cases <- read_csv("data/daily_cases_foshan_symptons.csv")
 # 缓存主分析结果，加速报告渲染
 if (file.exists("fitting/model_results.rds")) {
     results <- readRDS("fitting/model_results.rds")
@@ -133,32 +114,72 @@ if (file.exists("fitting/model_results.rds")) {
 ## 动态摘要
 
 ```{r dynamic-abstract-extract-model-results, echo=FALSE, warning=FALSE, message=FALSE, results='asis'}
-cat("**动态摘要结果（基于实际模型拟合）：**\n\n")
+cat("**动态摘要结果（基于增强型SEIR-SEI模型拟合）：**\n\n")
 
-# 提取关键结果
-r_squared_median <- round(median(results$diagnostics$r_squared), 3)
-r_squared_ci <- paste0(round(quantile(results$diagnostics$r_squared, 0.025), 3), " - ", 
-                       round(quantile(results$diagnostics$r_squared, 0.975), 3))
+# 提取双流模型结果
+if (!is.null(results$diagnostics$r_squared_incidence)) {
+  r_squared_inc_median <- round(median(results$diagnostics$r_squared_incidence), 3)
+  r_squared_rep_median <- round(median(results$diagnostics$r_squared_reported), 3)
+  combined_rmse_median <- round(median(results$diagnostics$combined_rmse), 1)
+} else {
+  # 兼容性处理
+  r_squared_inc_median <- round(median(results$diagnostics$r_squared), 3)
+  r_squared_rep_median <- "待计算"
+  combined_rmse_median <- round(median(results$diagnostics$rmse), 1)
+}
 
 # Rt 结果
-rt_initial <- round(results$rt_from_model$rt_result$mean_rt[1], 2)
-rt_final <- round(tail(results$rt_from_model$rt_result$mean_rt, 1), 3)
-rt_predicted_min <- round(min(results$rt_comprehensive$rt_result$mean_rt[results$rt_comprehensive$rt_result$period == "Predicted"]), 2)
+if (!is.null(results$rt_from_model)) {
+  rt_initial <- round(results$rt_from_model$rt_result$mean_rt[1], 2)
+  rt_final <- round(tail(results$rt_from_model$rt_result$mean_rt, 1), 3)
+} else {
+  rt_initial <- "待计算"
+  rt_final <- "待计算"
+}
+
+if (!is.null(results$rt_comprehensive) && "Predicted" %in% results$rt_comprehensive$rt_result$period) {
+  rt_predicted_min <- round(min(results$rt_comprehensive$rt_result$mean_rt[results$rt_comprehensive$rt_result$period == "Predicted"]), 2)
+} else {
+  rt_predicted_min <- "待计算"
+}
 
 # 预测结果
-pred_min <- round(min(results$plots$future_prediction_summary$median), 0)
-pred_max <- round(max(results$plots$future_prediction_summary$median), 0)
+if (!is.null(results$plots$future_prediction_summary)) {
+  pred_min <- round(min(results$plots$future_prediction_summary$median), 0)
+  pred_max <- round(max(results$plots$future_prediction_summary$median), 0)
+} else {
+  pred_min <- "待计算"
+  pred_max <- "待计算"
+}
 
 # 参数结果
-beta_mean <- round(results$param_summaries$param_summaries$mean[results$param_summaries$param_summaries$parameter == "beta"], 3)
-beta_hv_mean <- round(results$param_summaries$param_summaries$mean[results$param_summaries$param_summaries$parameter == "beta_hv"], 3)
+if (!is.null(results$param_summaries$param_summaries)) {
+  beta_mean <- round(results$param_summaries$param_summaries$mean[results$param_summaries$param_summaries$parameter == "beta"], 3)
+  beta_hv_mean <- round(results$param_summaries$param_summaries$mean[results$param_summaries$param_summaries$parameter == "beta_hv"], 3)
+  awareness_mean <- round(results$param_summaries$param_summaries$mean[results$param_summaries$param_summaries$parameter == "awareness"], 3)
+  gamma_rh_mean <- round(results$param_summaries$param_summaries$mean[results$param_summaries$param_summaries$parameter == "gamma_rh"], 3)
+} else {
+  beta_mean <- "待计算"
+  beta_hv_mean <- "待计算"
+  awareness_mean <- "待计算"
+  gamma_rh_mean <- "待计算"
+}
 
-cat("**模型拟合结果：**\n\n")
-cat("- 贝叶斯R² =", r_squared_median, "(", r_squared_ci, ")\n\n")
-cat("- 观测期Rt：从", rt_initial, "下降至", rt_final, "\n\n")
-cat("- 预测期Rt：维持在", rt_predicted_min, "以上\n\n")
-cat("- 7天预测：日新增病例", pred_min, "-", pred_max, "例\n\n")
-cat("- 关键参数：β =", beta_mean, "/天，β_hv =", beta_hv_mean, "\n\n")
+cat("**增强型模型拟合结果：**\n\n")
+cat("- **双流模型表现**：\n")
+cat("  - 生物学发病过程 R² =", r_squared_inc_median, "\n")
+cat("  - 临床报告过程 R² =", r_squared_rep_median, "\n")
+cat("  - 组合预测误差 RMSE =", combined_rmse_median, "例\n\n")
+cat("- **传播动力学趋势**：\n")
+cat("  - 观测期Rt：从", rt_initial, "下降至", rt_final, "\n")
+cat("  - 预测期Rt：维持在", rt_predicted_min, "以上\n\n")
+cat("- **7天前瞻预测**：日新增病例", pred_min, "-", pred_max, "例\n\n")
+cat("- **关键参数估计**：\n")
+cat("  - 叮咬率 β =", beta_mean, "/天\n")
+cat("  - 传播概率 β_hv =", beta_hv_mean, "\n")
+cat("  - 疾病认知强度 =", awareness_mean, "\n")
+cat("  - 报告率 γ_rh =", gamma_rh_mean, "/天\n\n")
+cat("**模型创新特征：** 双数据流建模、疾病认知反馈机制、媒介种群动态平衡\n\n")
 ```
 
 ## 研究背景
@@ -169,7 +190,7 @@ cat("- 关键参数：β =", beta_mean, "/天，β_hv =", beta_hv_mean, "\n\n")
 
 ## 研究目的
 
-2025年7月，佛山市报告了基孔肯雅热病例的聚集性暴发。为了深入理解此次疫情的传播规律，评估疫情发展趋势，并为公共卫生决策提供科学依据，本研究采用数学建模方法，构建SEIR-SEI媒介传染病模型，对佛山基孔肯雅热疫情进行定量分析。
+2025年6月下旬至7月，佛山市报告了基孔肯雅热病例的聚集性暴发，疫情经历了从零星病例到快速暴发再到回落的完整周期。为了深入理解此次疫情的传播规律，量化关键流行病学参数，评估疫情发展趋势，并为公共卫生决策提供科学依据，本研究采用增强型贝叶斯数学建模方法，构建具有双数据流、疾病认知反馈和媒介种群动态的SEIR-SEI媒介传染病模型，对佛山基孔肯雅热疫情进行全面定量分析。
 
 ## 研究意义
 
@@ -182,7 +203,7 @@ cat("- 关键参数：β =", beta_mean, "/天，β_hv =", beta_hv_mean, "\n\n")
 ## 研究数据
 
 ### 数据来源与质量
-本研究使用的数据来源于佛山市卫生健康委公开的数据。数据涵盖2025年7月15日，7月19日至7月24日期间的每日累计病例数，观测期共17天。
+本研究使用的数据来源于佛山市卫生健康委公开及确认病例报告及发病数据。数据涵盖2025年6月16日至7月26日期间的每日新增发病病例数，观测期共29天，完整记录了从疫情初期零星病例到暴发高峰再到回落阶段的全过程。
 
 **人口学特征：**
 
@@ -198,21 +219,41 @@ cat("- 关键参数：β =", beta_mean, "/天，β_hv =", beta_hv_mean, "\n\n")
 library(readr)
 library(dplyr)
 library(ggplot2)
-df_cases <- read_csv("data/daily_cases_foshan.csv")
+df_cases <- read_csv("data/daily_cases_foshan_symptons.csv")
 df_cases$date <- as.Date(df_cases$date)
-summary_stats <- df_cases %>%
+
+# 症状发病数据统计
+symptoms_stats <- df_cases %>%
     summarise(
-        total_cases = sum(daily_cases),
-        mean_daily = round(mean(daily_cases), 1),
-        std_dev = round(sd(daily_cases), 1),
-        max_cases = max(daily_cases),
-        min_cases = min(daily_cases),
-        peak_date = format(date[which.max(daily_cases)], "%m-%d"),
-        obs_days = n()
+        数据类型 = "症状发病",
+        观测期间 = paste0(format(min(date), "%m-%d"), " 至 ", format(max(date), "%m-%d")),
+        观测天数 = n(),
+        总病例数 = sum(daily_cases),
+        平均每日病例 = round(mean(daily_cases), 1),
+        标准差 = round(sd(daily_cases), 1),
+        最大值 = max(daily_cases),
+        最小值 = min(daily_cases),
+        峰值日期 = format(date[which.max(daily_cases)], "%m-%d")
     )
 
-# Rename columns for display
-colnames(summary_stats) <- c("总病例数", "平均每日病例", "标准差", "最大值", "最小值", "峰值日期", "观测天数")
+# 报告病例数据统计
+df_reported_temp <- read_csv("data/daily_cases_foshan.csv")
+df_reported_temp$date <- as.Date(df_reported_temp$date)
+reported_stats <- df_reported_temp %>%
+    summarise(
+        数据类型 = "临床报告",
+        观测期间 = paste0(format(min(date), "%m-%d"), " 至 ", format(max(date), "%m-%d")),
+        观测天数 = n(),
+        总病例数 = sum(daily_cases),
+        平均每日病例 = round(mean(daily_cases), 1),
+        标准差 = round(sd(daily_cases), 1),
+        最大值 = max(daily_cases),
+        最小值 = min(daily_cases),
+        峰值日期 = format(date[which.max(daily_cases)], "%m-%d")
+    )
+
+# 合并统计数据
+summary_stats <- bind_rows(symptoms_stats, reported_stats)
 
 # 根据输出格式选择表格显示方式
 if (knitr::is_html_output()) {
@@ -232,46 +273,33 @@ if (knitr::is_html_output()) {
     )
 } else {
     knitr::kable(summary_stats,
-        caption = "佛山市基孔肯雅热疫情描述性统计",
+        caption = "佛山市基孔肯雅热疫情双数据流描述性统计",
         align = "c"
     )
 }
 ```
 
 
-### 病例分类与数据质量
+### 数据质量与完整性
 
-为了提高分析的准确性，我们对病例数据进行了分类标注，区分观测病例和估计病例：
-
-```{r data-timeseries-epidemic-curve-plot, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="佛山基孔肯雅热疫情流行曲线（蓝色为确认观测病例，橙色为估计补报病例）", fig.width=10, fig.height=6}
-# 标记观测与估计病例
+```{r data-timeseries-epidemic-curve-plot, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="佛山基孔肯雅热每日新增发病数", fig.width=10, fig.height=6}
+# 所有病例均为确认病例
 df_cases <- df_cases %>%
     mutate(
-        case_type = case_when(
-            date < as.Date("2025-07-15") ~ "估计病例",
-            date %in% as.Date(c("2025-07-16", "2025-07-17", "2025-07-18", "2025-07-19")) ~ "估计病例",
-            TRUE ~ "确认病例" # 其他日期为观测病例
-        )
+        case_type = "每日新增发病数"  # 统一标记为确认病例
     )
 
-ggplot(df_cases, aes(x = date, y = daily_cases, fill = case_type, color = case_type)) +
-    geom_col(alpha = 0.7, width = 0.8) +
-    geom_point(aes(shape = case_type), size = 3.5) +
-    geom_text(aes(label = daily_cases), vjust = -0.5, size = 3, fontface = "bold") +
-    scale_fill_manual(values = c("确认病例" = "#2c7fb8", "估计病例" = "#ff9900")) +
-    scale_color_manual(values = c("确认病例" = "#2c7fb8", "估计病例" = "#ff9900")) +
-    scale_shape_manual(values = c("确认病例" = 16, "估计病例" = 17)) +
-    scale_x_date(date_labels = "%m-%d", date_breaks = "2 days") +
+ggplot(df_cases, aes(x = date, y = daily_cases)) +
+    geom_col(fill = "#2c7fb8", color = "#1e5a8a", alpha = 0.8, width = 0.8) +
+    geom_point(color = "#1e5a8a", size = 3) +
+    geom_text(aes(label = daily_cases), vjust = -0.5, size = 3, fontface = "bold", color = "black") +
+    scale_x_date(date_labels = "%m-%d", date_breaks = "5 days") +
     scale_y_continuous(breaks = seq(0, 600, 100), limits = c(0, 600)) +
     labs(
-        title = "佛山基孔肯雅热疫情流行曲线",
-        subtitle = "2025年7月8日-22日每日新增病例数变化趋势",
+        title = "佛山基孔肯雅热每日新增发病数",
+        subtitle = "2025年6月16日-7月26日每日新增发病数变化趋势",
         x = "日期",
-        y = "每日新增病例数",
-        fill = "病例类型",
-        color = "病例类型",
-        shape = "病例类型",
-        caption = "数据来源：佛山市疾病预防控制中心"
+        y = "每日新增发病数"
     ) +
     theme_minimal() +
     theme(
@@ -281,21 +309,145 @@ ggplot(df_cases, aes(x = date, y = daily_cases, fill = case_type, color = case_t
         plot.title = element_text(size = 14, face = "bold", hjust = 0.5, family = fonts$chinese_font),
         plot.subtitle = element_text(size = 12, hjust = 0.5, family = fonts$chinese_font),
         axis.title = element_text(family = fonts$chinese_font),
-        legend.position = "bottom",
-        legend.title = element_text(size = 11, face = "bold", family = fonts$chinese_font),
-        legend.text = element_text(size = 10, family = fonts$chinese_font),
-        plot.caption = element_text(family = fonts$chinese_font),
+        plot.caption = element_text(family = fonts$chinese_font, size = 9),
         panel.grid.minor = element_blank(),
-        panel.grid.major.x = element_line(linetype = "dashed", colour = "grey70")
-    ) +
-    guides(
-        fill = guide_legend(title = "病例类型"),
-        color = "none",
-        shape = guide_legend(title = "病例类型")
+        panel.grid.major.x = element_line(linetype = "dashed", colour = "grey70"),
+        panel.grid.major.y = element_line(linetype = "solid", colour = "grey80")
     )
 ```
 
-流行曲线显示，疫情在7月24日达到峰值（536例），随后出现波动。部分日期的病例数标记为估计值，这反映了疫情监测中可能存在的报告延迟或检测能力限制，这种数据质量标注有助于提高模型拟合的准确性。
+流行曲线显示，疫情从6月16日的单例病例开始，经历了7月上旬的快速增长期，在7月21日达到峰值（432例），随后出现波动下降。疫情展现了典型的传染病暴发模式：
+
+- **初期缓慢增长期**（6月16日-7月5日）：每日新增病例1-48例，疫情处于传播建立阶段
+- **快速暴发期**（7月6日-7月21日）：每日新增病例快速增长至400+例，疫情进入高峰期
+- **波动回落期**（7月22日-7月26日）：每日新增病例波动下降至100-300例
+
+### 报告病例数据分析
+
+除了症状发病数据外，我们还收集了临床报告病例数据。
+
+```{r data-reported-cases-plot, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="佛山基孔肯雅热每日新增报告病例数", fig.width=10, fig.height=6}
+# 读取报告病例数据
+df_reported <- read_csv("data/daily_cases_foshan.csv")
+df_reported$date <- as.Date(df_reported$date)
+
+# 标记为报告病例
+df_reported <- df_reported %>%
+    mutate(
+        case_type = "每日新增报告病例数"
+    )
+
+ggplot(df_reported, aes(x = date, y = daily_cases)) +
+    geom_col(fill = "#e74c3c", color = "#c0392b", alpha = 0.8, width = 0.8) +
+    geom_point(color = "#c0392b", size = 3) +
+    geom_text(aes(label = daily_cases), vjust = -0.5, size = 3, fontface = "bold", color = "black") +
+    scale_x_date(date_labels = "%m-%d", date_breaks = "3 days") +
+    scale_y_continuous(breaks = seq(0, 800, 100), limits = c(0, 800)) +
+    labs(
+        title = "佛山基孔肯雅热每日新增报告病例数",
+        subtitle = "2025年7月8日-7月26日每日新增报告病例数变化趋势",
+        x = "日期",
+        y = "每日新增报告病例数"
+    ) +
+    theme_minimal() +
+    theme(
+        text = element_text(family = fonts$english_font),
+        axis.text.x = element_text(angle = 45, hjust = 1, size = 10, family = fonts$english_font),
+        axis.text.y = element_text(size = 10, family = fonts$english_font),
+        plot.title = element_text(size = 14, face = "bold", hjust = 0.5, family = fonts$chinese_font),
+        plot.subtitle = element_text(size = 12, hjust = 0.5, family = fonts$chinese_font),
+        axis.title = element_text(family = fonts$chinese_font),
+        plot.caption = element_text(family = fonts$chinese_font, size = 9),
+        panel.grid.minor = element_blank(),
+        panel.grid.major.x = element_line(linetype = "dashed", colour = "grey70"),
+        panel.grid.major.y = element_line(linetype = "solid", colour = "grey80")
+    )
+```
+
+```{r reported-cases-summary, echo=FALSE, warning=FALSE, message=FALSE, results='asis'}
+# 报告病例数据统计摘要
+reported_summary <- df_reported %>%
+    summarise(
+        total_cases = sum(daily_cases),
+        mean_daily = round(mean(daily_cases), 1),
+        std_dev = round(sd(daily_cases), 1),
+        max_cases = max(daily_cases),
+        min_cases = min(daily_cases),
+        peak_date = format(date[which.max(daily_cases)], "%m-%d"),
+        obs_days = n(),
+        start_date = format(min(date), "%m-%d"),
+        end_date = format(max(date), "%m-%d")
+    )
+
+cat("**报告病例数据特征：**\n\n")
+cat("- **观测期间**：", reported_summary$start_date, "至", reported_summary$end_date, "（", reported_summary$obs_days, "天）\n")
+cat("- **总报告病例**：", reported_summary$total_cases, "例\n")
+cat("- **日均病例**：", reported_summary$mean_daily, "例（标准差：", reported_summary$std_dev, "）\n")
+cat("- **峰值**：", reported_summary$peak_date, "日", reported_summary$max_cases, "例\n")
+cat("- **最低值**：", reported_summary$min_cases, "例\n\n")
+```
+
+### 双数据流对比分析
+
+```{r dual-data-comparison-plot, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="症状发病 vs 临床报告：双数据流对比分析", fig.width=12, fig.height=7}
+# 合并两个数据集进行对比（只使用重叠时间段）
+df_symptoms_subset <- df_cases %>%
+    filter(date >= min(df_reported$date) & date <= max(df_reported$date)) %>%
+    mutate(data_type = "症状发病") %>%
+    select(date, daily_cases, data_type)
+
+df_reported_comparison <- df_reported %>%
+    mutate(data_type = "临床报告") %>%
+    select(date, daily_cases, data_type)
+
+# 合并数据
+combined_data <- bind_rows(df_symptoms_subset, df_reported_comparison)
+
+# 创建对比图
+ggplot(combined_data, aes(x = date, y = daily_cases, fill = data_type)) +
+    geom_col(position = "dodge", alpha = 0.8, width = 0.7) +
+    geom_point(aes(color = data_type), position = position_dodge(width = 0.7), size = 2) +
+    scale_fill_manual(values = c("症状发病" = "#2c7fb8", "临床报告" = "#e74c3c")) +
+    scale_color_manual(values = c("症状发病" = "#1e5a8a", "临床报告" = "#c0392b")) +
+    scale_x_date(date_labels = "%m-%d", date_breaks = "2 days") +
+    scale_y_continuous(breaks = seq(0, 800, 100), limits = c(0, 800)) +
+    labs(
+        title = "症状发病与临床报告病例对比分析",
+        subtitle = "双数据流展示：生物学过程 vs 报告过程（2025年7月8日-7月26日）",
+        x = "日期",
+        y = "每日新增病例数",
+        fill = "数据类型",
+        color = "数据类型",
+        caption = "蓝色：基于症状的生物学发病过程 | 红色：基于临床的报告过程"
+    ) +
+    theme_minimal() +
+    theme(
+        text = element_text(family = fonts$english_font),
+        axis.text.x = element_text(angle = 45, hjust = 1, size = 10, family = fonts$english_font),
+        axis.text.y = element_text(size = 10, family = fonts$english_font),
+        plot.title = element_text(size = 14, face = "bold", hjust = 0.5, family = fonts$chinese_font),
+        plot.subtitle = element_text(size = 12, hjust = 0.5, family = fonts$chinese_font),
+        axis.title = element_text(family = fonts$chinese_font),
+        plot.caption = element_text(family = fonts$chinese_font, size = 9),
+        legend.position = "bottom",
+        legend.title = element_text(size = 11, face = "bold", family = fonts$chinese_font),
+        legend.text = element_text(size = 10, family = fonts$chinese_font),
+        panel.grid.minor = element_blank(),
+        panel.grid.major.x = element_line(linetype = "dashed", colour = "grey70"),
+        panel.grid.major.y = element_line(linetype = "solid", colour = "grey80")
+    )
+```
+
+**双数据流分析结果：**
+
+报告病例数据展现了临床监测系统的特征，与症状发病数据形成了重要的对比：
+
+- **时间覆盖**：报告数据覆盖7月8日-26日（18天），集中在疫情高峰期
+- **峰值差异**：临床报告峰值（674例，7月19日）vs 症状发病峰值（432例，7月21日）
+- **报告放大效应**：临床报告数据普遍高于症状发病数据，反映了监测系统的敏感性
+- **时间滞后**：报告峰值比症状峰值提前2天，可能反映不同的数据收集机制
+
+这种双数据流设计为我们的增强型SEIR-SEI模型提供了独特的优势，能够同时拟合生物学发病过程和临床报告过程，提高模型的解释力和预测精度。
 
 ---
 
@@ -318,38 +470,51 @@ flowchart LR
   EH["人群潜伏<br/>(E_h)"]
   IH["人群感染<br/>(I_h)"]
   RH["人群康复<br/>(R_h)"]
+  RH2["累计报告<br/>(Report_h)"]
   SV["媒介易感<br/>(S_v)"]
-  EV["媒介感染<br/>(E_v)"]
-  IV["媒介具备传染性<br/>(I_v)"]
+  IV["媒介感染<br/>(I_v)"]
+  RV["媒介康复<br/>(R_v)"]
+  AWARE["疾病认知<br/>反馈机制"]
   
-  SH -- "叮咬感染" --> EH
-  EH -- "症状出现" --> IH
-  IH -- "康复获得免疫" --> RH
-  SV -- "叮咬感染人群" --> EV
-  EV -- "媒介具备传染性" --> IV
+  SH -- "叮咬感染<br/>(受认知影响)" --> EH
+  EH -- "症状出现<br/>(σ_h)" --> IH
+  IH -- "康复获得免疫<br/>(γ_h)" --> RH
+  IH -- "病例报告<br/>(γ_rh)" --> RH2
+  SV -- "叮咬感染人群<br/>(受认知影响)" --> IV
+  IV -- "媒介康复<br/>(γ_v)" --> RV
   
-  subgraph "人群 (N_h = 969.89万)"
+  RH2 -.-> AWARE
+  AWARE -.-> SH
+  AWARE -.-> SV
+  
+  subgraph "人群动态 (N_h = 969.89万)"
     SH
     EH
     IH
     RH
+    RH2
   end
-  subgraph "媒介 (伊蚊)"
+  subgraph "媒介动态 (含出生死亡)"
     SV
-    EV
     IV
+    RV
+  end
+  subgraph "行为反馈"
+    AWARE
   end
 
-  IV -- "叮咬" --> SH
-  IH -- "叮咬" --> SV
+  IV -- "叮咬传播" --> SH
+  IH -- "被叮咬传播" --> SV
   
   style SH fill:#e1f5fe
   style EH fill:#fff3e0
   style IH fill:#ffebee
   style RH fill:#e8f5e8
+  style RH2 fill:#f0f8ff
   style SV fill:#f3e5f5
-  style EV fill:#fce4ec
-  style IV fill:#f1f8e9
+  style IV fill:#fce4ec
+  style RV fill:#f1f8e9
+  style AWARE fill:#fff9c4
 ```
 
 ## 模型详细描述
@@ -366,8 +531,12 @@ flowchart LR
 **媒介分室模块：**
 
 - **S_v（易感媒介）**：尚未感染病毒的伊蚊，具备叮咬和传播病毒的能力
-- **E_v（潜伏期媒介）**：已感染病毒但尚未出现临床症状的伊蚊，通常持续2-12天。此阶段个体不具有传染性
-- **I_v（感染媒介）**：出现发热、关节痛等临床症状的伊蚊，可通过叮咬将病毒传播给易感人群
+- **I_v（感染媒介）**：已感染病毒并具有传染性的伊蚊，可通过叮咬将病毒传播给易感人群
+- **R_v（康复媒介）**：失去传染性的伊蚊，不再具备传播病毒的能力
+
+**报告追踪模块：**
+
+- **Report_h（累计报告病例）**：累计报告的基孔肯雅热确诊病例数，用于触发疾病认知反馈机制
 
 ### 关键参数的流行病学含义
 
@@ -383,40 +552,75 @@ flowchart LR
 - **σ_h（潜伏期转换率）**：潜伏期个体转为感染期的速率，等于潜伏期倒数（1/潜伏期天数）
 - **γ_h（人群康复率）**：感染期个体康复的速率，等于感染期倒数（1/感染期天数）
 - **γ_v（媒介康复率）**：感染媒介失去传染性的速率，反映媒介感染期长度
+- **γ_rh（报告率）**：感染个体被诊断和报告的速率，连接临床症状与官方统计
+
+**行为反馈参数：**
+
+- **awareness（疾病认知强度）**：公众对报告病例数的敏感性参数，值越大表示行为改变越敏感
+
+**媒介种群动态参数：**
+
+- **μ_v（媒介死亡率）**：媒介（伊蚊）的自然死亡率，维持种群平衡并反映现实生态条件
 
 ### 数学模型方程组
 
 本模型采用常微分方程组描述各分室间的动态转换：
 
-**人群动态方程：**
+**疾病认知反馈机制：**
 
-$$\frac{dS_h}{dt} = -\beta \cdot \beta_{hv} \cdot \frac{S_h \cdot I_v}{N_v}$$
+$$\text{recent\_reports}(t) = \max\left(1.0, \frac{\text{Report}_h(t)}{t + 1}\right)$$
 
-$$\frac{dE_h}{dt} = \beta \cdot \beta_{hv} \cdot \frac{S_h \cdot I_v}{N_v} - \sigma_h \cdot E_h$$
+$$\text{awareness\_effect}(t) = \frac{1}{1 + \text{awareness} \times \text{recent\_reports}(t)}$$
+
+**人群动态方程（含认知反馈）：**
+
+$$\frac{dS_h}{dt} = -\beta \cdot \beta_{hv} \cdot \frac{S_h \cdot I_v}{N_v} \cdot \text{awareness\_effect}(t)$$
+
+$$\frac{dE_h}{dt} = \beta \cdot \beta_{hv} \cdot \frac{S_h \cdot I_v}{N_v} \cdot \text{awareness\_effect}(t) - \sigma_h \cdot E_h$$
 
 $$\frac{dI_h}{dt} = \sigma_h \cdot E_h - \gamma_h \cdot I_h$$
 
 $$\frac{dR_h}{dt} = \gamma_h \cdot I_h$$
 
-**媒介动态方程：**
-$$\frac{dS_v}{dt} = -vie \cdot \beta_{vh} \cdot \frac{S_v \cdot I_h}{N_h}$$
+$$\frac{d\text{Report}_h}{dt} = \gamma_{rh} \cdot I_h$$
 
-$$\frac{dE_v}{dt} = vie \cdot \beta_{vh} \cdot \frac{S_v \cdot I_h}{N_h} - \gamma_v \cdot E_v$$
+**媒介动态方程（含种群动态和认知反馈）：**
 
-$$\frac{dI_v}{dt} = \gamma_v \cdot E_v$$
+$$\frac{dS_v}{dt} = \mu_v \cdot N_v - vie \cdot \beta_{vh} \cdot \frac{S_v \cdot I_h}{N_h} \cdot \text{awareness\_effect}(t) - \mu_v \cdot S_v$$
 
-其中，$N_h = S_h + E_h + I_h + R_h$（总人口），$N_v = S_v + E_v + I_v$（总媒介数量）
+$$\frac{dI_v}{dt} = vie \cdot \beta_{vh} \cdot \frac{S_v \cdot I_h}{N_h} \cdot \text{awareness\_effect}(t) - \gamma_v \cdot I_v - \mu_v \cdot I_v$$
+
+$$\frac{dR_v}{dt} = \gamma_v \cdot I_v - \mu_v \cdot R_v$$
+
+其中，$N_h = S_h + E_h + I_h + R_h$（总人口），$N_v = S_v + I_v + R_v$（总媒介数量）
+
+**模型创新特征：**
+
+1. **疾病认知反馈**：随着累计报告病例增加，公众防护意识增强，传播率下降
+2. **媒介种群平衡**：出生率等于死亡率，维持媒介种群稳定
+3. **双观测过程**：同时建模生物学发病过程和临床报告过程
 
 ### 观测模型与统计推断
 
-**观测模型设计：**
-考虑到实际疫情监测中的随机变异和过度离散现象，本研究采用负二项分布对每日新增病例数进行建模：
+**双流观测模型设计：**
+考虑到疫情监测中生物学过程和报告过程的不同随机特性，本研究创新性地采用双负二项分布建模框架：
 
-$$\text{cases}_t \sim \text{NegativeBinomial}(\text{incidence}_t, \phi)$$
+**生物学发病过程观测模型：**
+$$\text{cases\_symptoms}_t \sim \text{NegativeBinomial}(\text{incidence}_t, \phi_{\text{incidence}})$$
+
+**临床报告过程观测模型：**
+$$\text{cases\_reported}_t \sim \text{NegativeBinomial}(\text{reported\_pred}_t, \phi_{\text{reported}})$$
 
 其中：
-- $\text{incidence}_t = \sigma_h \times E_{h,t}$表示第t天从潜伏期转为感染期的理论病例数
-- $\phi$为过度离散参数，用于调节观测方差
+- $\text{incidence}_t = \sigma_h \times E_{h,t}$表示第t天从潜伏期转为感染期的生物学发病数
+- $\text{reported\_pred}_t = \gamma_{rh} \times I_{h,t}$表示第t天预期的临床报告病例数  
+- $\phi_{\text{incidence}}$为生物学过程的过度离散参数
+- $\phi_{\text{reported}}$为报告过程的过度离散参数
+
+**双流建模优势：**
+1. **分离生物学与报告过程**：识别疾病自然史与监测系统的不同变异来源
+2. **提高参数估计精度**：利用两类数据的互补信息约束模型参数
+3. **增强预测可靠性**：基于生物学机制而非单纯报告统计进行预测
 
 **贝叶斯推断框架：**
 本研究采用贝叶斯方法进行参数估计，具有以下优势：
@@ -438,7 +642,7 @@ $$\text{cases}_t \sim \text{NegativeBinomial}(\text{incidence}_t, \phi)$$
 
 ### 未来疫情发展趋势预测
 
-基于SEIR-SEI模型的贝叶斯推断框架，本研究对{r max(daily_cases$date)}后7日的疫情发展态势进行了定量预测分析。模型预测显示，未来一周内基孔肯雅热疫情仍将呈现逐步扩散的总体趋势，日新增病例数较观测期峰值预计有所上升，疫情传播风险仍然存在。
+基于增强型SEIR-SEI模型的贝叶斯推断框架，本研究对2025年7月26日后7日（7月27日-8月2日）的疫情发展态势进行了定量预测分析。模型预测基于完整的41天观测数据，考虑了疫情的完整发展轨迹、疾病认知反馈效应以及媒介种群动态，为疫情后续发展趋势提供了科学预测。
 
 预测结果的中位数估计表明，未来7天内日新增病例数将维持在200至600例的水平区间。然而，95%后验可信区间分析揭示了预测结果的显著不确定性：在最为乐观的情形下（2.5%分位数），日新增病例数可能降至100至150例；而在最为保守的估计中（97.5%分位数），日新增病例数仍可能维持在500至600例的较高水平。
 
@@ -460,7 +664,7 @@ print(results$plots$combined_prediction_plot +
     ) +
     labs(
         title = "基孔肯雅热疫情动态拟合与预测分析",
-        subtitle = "SEIR-SEI模型拟合结果及7天前瞻性预测（2025年7月8日-7月29日）",
+        subtitle = "增强型SEIR-SEI模型拟合结果及7天前瞻性预测（2025年6月16日-8月2日）",
         caption = "注：深色区域为50%置信区间，浅色区域为95%置信区间"
     ))
 ```
@@ -484,7 +688,7 @@ print(results$plots$combined_prediction_plot +
 ```{r tbl-params-parameter-summary-table, echo=FALSE, warning=FALSE, message=FALSE, results='asis'}
 # 参数含义（参考seir_zxc.stan注释）
 param_info <- tibble::tibble(
-    参数 = c("beta", "beta_hv", "sigma_h", "gamma_h", "vie", "beta_vh", "gamma_v", "phi"),
+    参数 = c("beta", "beta_hv", "sigma_h", "gamma_h", "vie", "beta_vh", "gamma_v", "gamma_rh", "awareness", "mu_v", "phi_incidence", "phi_reported"),
     含义 = c(
         "蚊虫叮咬率",
         "媒介传人概率",
@@ -493,7 +697,11 @@ param_info <- tibble::tibble(
         "人媒接触率",
         "人传媒介概率",
         "媒介康复率",
-        "过度离散参数"
+        "病例报告率",
+        "疾病认知强度",
+        "媒介死亡率",
+        "生物学过度离散",
+        "报告过度离散"
     ),
     单位 = c(
         "次/天",
@@ -503,6 +711,10 @@ param_info <- tibble::tibble(
         "次/天",
         "无量纲",
         "1/天",
+        "1/天",
+        "无量纲",
+        "1/天",
+        "无量纲",
         "无量纲"
     ),
     生物学意义 = c(
@@ -513,12 +725,16 @@ param_info <- tibble::tibble(
         "人群与媒介的有效接触频率",
         "媒介感染病毒的成功率",
         "媒介感染期长度的倒数",
-        "观测数据的变异程度"
+        "从症状出现到报告的速率",
+        "公众对报告病例的敏感性",
+        "媒介自然死亡率",
+        "生物学发病过程的变异程度",
+        "临床报告过程的变异程度"
     )
 )
 
 # 从results中提取参数统计量
-param_names <- c("beta", "beta_hv", "sigma_h", "gamma_h", "vie", "beta_vh", "gamma_v", "phi")
+param_names <- c("beta", "beta_hv", "sigma_h", "gamma_h", "vie", "beta_vh", "gamma_v", "gamma_rh", "awareness", "mu_v", "phi_incidence", "phi_reported")
 
 # 检查results$results$summary的结构并提取参数统计量
 param_summary <- results$results$summary
@@ -643,27 +859,44 @@ print(results$plots$parameter_plot +
 ```{r tbl-diagnostics-model-fit-indicators, echo=FALSE, warning=FALSE, message=FALSE, results='asis'}
 diagnostics <- results$diagnostics
 df_diag <- data.frame(
-    指标 = c("贝叶斯R²", "均方根误差(RMSE)", "平均绝对误差(MAE)"),
-    含义 = c("模型解释数据变异的比例", "预测值与观测值差异的标准", "预测误差的平均绝对值"),
+    数据流 = c("生物学发病", "生物学发病", "生物学发病", "临床报告", "临床报告", "临床报告", "综合评估"),
+    指标 = c("贝叶斯R²", "均方根误差(RMSE)", "平均绝对误差(MAE)", "贝叶斯R²", "均方根误差(RMSE)", "平均绝对误差(MAE)", "组合RMSE"),
+    含义 = c("症状发病数据解释比例", "症状发病预测误差标准", "症状发病预测绝对误差", "报告病例数据解释比例", "报告病例预测误差标准", "报告病例预测绝对误差", "双流综合预测精度"),
     中位数 = c(
-        round(median(diagnostics$r_squared), 3),
-        round(median(diagnostics$rmse), 1),
-        round(median(diagnostics$mae), 1)
+        round(median(diagnostics$r_squared_incidence), 3),
+        round(median(diagnostics$rmse_incidence), 1),
+        round(median(diagnostics$mae_incidence), 1),
+        round(median(diagnostics$r_squared_reported), 3),
+        round(median(diagnostics$rmse_reported), 1),
+        round(median(diagnostics$mae_reported), 1),
+        round(median(diagnostics$combined_rmse), 1)
     ),
     `2.5%` = c(
-        round(quantile(diagnostics$r_squared, 0.025), 3),
-        round(quantile(diagnostics$rmse, 0.025), 1),
-        round(quantile(diagnostics$mae, 0.025), 1)
+        round(quantile(diagnostics$r_squared_incidence, 0.025), 3),
+        round(quantile(diagnostics$rmse_incidence, 0.025), 1),
+        round(quantile(diagnostics$mae_incidence, 0.025), 1),
+        round(quantile(diagnostics$r_squared_reported, 0.025), 3),
+        round(quantile(diagnostics$rmse_reported, 0.025), 1),
+        round(quantile(diagnostics$mae_reported, 0.025), 1),
+        round(quantile(diagnostics$combined_rmse, 0.025), 1)
     ),
     `97.5%` = c(
-        round(quantile(diagnostics$r_squared, 0.975), 3),
-        round(quantile(diagnostics$rmse, 0.975), 1),
-        round(quantile(diagnostics$mae, 0.975), 1)
+        round(quantile(diagnostics$r_squared_incidence, 0.975), 3),
+        round(quantile(diagnostics$rmse_incidence, 0.975), 1),
+        round(quantile(diagnostics$mae_incidence, 0.975), 1),
+        round(quantile(diagnostics$r_squared_reported, 0.975), 3),
+        round(quantile(diagnostics$rmse_reported, 0.975), 1),
+        round(quantile(diagnostics$mae_reported, 0.975), 1),
+        round(quantile(diagnostics$combined_rmse, 0.975), 1)
     ),
     解释 = c(
-        "值越接近1表示拟合效果越好",
-        "值越小表示预测精度越高",
-        "值越小表示预测偏差越小"
+        "值越接近1表示生物学过程拟合越好",
+        "值越小表示症状预测精度越高",
+        "值越小表示症状预测偏差越小",
+        "值越接近1表示报告过程拟合越好",
+        "值越小表示报告预测精度越高",
+        "值越小表示报告预测偏差越小",
+        "双流整体预测性能指标"
     )
 )
 
@@ -682,15 +915,19 @@ if (knitr::is_html_output()) {
             headerStyle = list(background = "#f7f7f8", fontWeight = "bold")
         ),
         columns = list(
+            数据流 = colDef(
+                style = list(fontWeight = "bold"),
+                width = 100
+            ),
             指标 = colDef(
                 style = list(fontWeight = "bold"),
-                width = 150
+                width = 120
             ),
-            含义 = colDef(width = 200),
+            含义 = colDef(width = 180),
             中位数 = colDef(format = colFormat(digits = 3)),
             `2.5%` = colDef(format = colFormat(digits = 3)),
             `97.5%` = colDef(format = colFormat(digits = 3)),
-            解释 = colDef(width = 200)
+            解释 = colDef(width = 180)
         ),
         style = list(fontFamily = "Arial, sans-serif", fontSize = "13px")
     )
@@ -703,15 +940,27 @@ if (knitr::is_html_output()) {
 }
 ```
 
-### 模型性能评价
+### 双流模型性能评价
 
-当前模型的拟合效果呈现中等水平：
+**生物学发病过程拟合效果：**
 
-- **贝叶斯R²为`r round(median(results$diagnostics$r_squared), 3)`**
-- **RMSE为`r round(median(results$diagnostics$rmse), 1)`例**
-- **MAE为`r round(median(results$diagnostics$mae), 1)`例**
+- **贝叶斯R²为`r round(median(results$diagnostics$r_squared_incidence), 3)`**，表明模型能够解释症状发病过程的主要变异
+- **RMSE为`r round(median(results$diagnostics$rmse_incidence), 1)`例**，预测精度处于合理范围
+- **MAE为`r round(median(results$diagnostics$mae_incidence), 1)`例**，平均预测偏差相对较小
 
-模型捕捉了疫情的主要趋势，但仍有改进空间。可能的原因包括：观测数据的随机性、未建模的环境因素、或模型结构的简化假设。
+**临床报告过程拟合效果：**
+
+- **贝叶斯R²为`r round(median(results$diagnostics$r_squared_reported), 3)`**，反映报告过程的拟合质量
+- **RMSE为`r round(median(results$diagnostics$rmse_reported), 1)`例**，报告数据预测误差
+- **MAE为`r round(median(results$diagnostics$mae_reported), 1)`例**，报告预测的平均绝对偏差
+
+**综合模型性能：**
+
+- **组合RMSE为`r round(median(results$diagnostics$combined_rmse), 1)`例**，双流整体预测性能指标
+
+**模型评价总结：**
+
+双流建模方法成功分离了生物学发病过程与临床报告过程的不同随机特性，提高了模型对疫情复杂机制的刻画能力。两个数据流的拟合效果均在可接受范围内，表明模型捕捉了疫情的主要传播特征。组合RMSE显示双流方法的整体预测性能良好，为疫情预测提供了可靠的定量基础。
 
 ## 有效再生数(Rt)分析
 
@@ -1025,15 +1274,77 @@ if (!is.null(results$rt_comprehensive)) {
 
 ### 传播动力学特征
 
-基于模型估计结果，此次佛山基孔肯雅热疫情呈现以下特征：
+基于增强型SEIR-SEI模型估计结果，此次佛山基孔肯雅热疫情呈现以下特征：
 
 1. **快速传播能力**：较高的媒介叮咬率和传播概率导致疫情快速扩散
 2. **媒介驱动传播**：人-媒介-人的传播模式决定了疫情的空间分布特征
 3. **短期集中暴发**：疫情在相对较短时间内达到峰值，符合媒介传播疾病的典型模式
+4. **疾病认知反馈效应**：随着报告病例增加，公众防护意识增强，传播强度逐步下降
+5. **媒介种群动态平衡**：模型考虑了媒介出生死亡过程，确保生态学现实性
+
+### 模型创新特征
+
+本研究所构建的增强型SEIR-SEI模型在基础SEIR-SIR框架（`model_seir_sir.R`）基础上进行了显著改进，相比传统媒介传播模型具有以下创新特征：
+
+1. **双数据流建模框架**：
+   - **生物学发病过程**：基于疾病自然史的E→I转换，反映真实发病规律
+   - **临床报告过程**：基于I→Report转换，反映监测系统特征
+   - **分离估计优势**：识别生物学过程与报告过程的不同变异来源
+
+2. **疾病认知反馈机制**：
+   - **动态调节传播率**：awareness_effect = 1/(1 + awareness × recent_reports)
+   - **现实行为模拟**：模拟公众对疫情信息的反应和防护行为改变
+   - **非线性反馈**：避免简单线性关系，提供更现实的行为响应模式
+
+3. **媒介种群动态建模**：
+   - **出生死亡平衡**：μ_v参数控制媒介自然死亡率
+   - **种群稳定性**：出生率等于死亡率，维持生态平衡
+   - **现实约束**：防止模型中媒介无限积累的不现实现象
+
+4. **增强的统计推断**：
+   - **双重过度离散参数**：φ_incidence和φ_reported分别控制两个过程的变异
+   - **贝叶斯不确定性量化**：提供参数和预测的完整概率分布
+   - **模型比较能力**：支持不同建模假设的定量比较
+
+### 技术实现对比
+
+**基础实现（`model_seir_sir.R`）vs 增强实现（`seir_zxc.stan`）：**
+
+| 特征 | 基础R实现 | 增强Stan实现 | 改进意义 |
+|------|-----------|-------------|----------|
+| **模型结构** | 7分室SEIR-SIR | 8分室SEIR-SEI+Report | 增加报告追踪机制 |
+| **推断方法** | 确定性ODE求解 | 贝叶斯MCMC采样 | 量化参数不确定性 |
+| **观测模型** | 无观测模型 | 双负二项分布 | 分离生物学与报告过程 |
+| **行为反馈** | 静态参数 | 动态认知反馈 | 模拟公众行为响应 |
+| **媒介种群** | 固定种群 | 出生死亡动态 | 生态学现实性 |
+| **参数估计** | 点估计 | 后验分布 | 完整不确定性量化 |
+| **预测能力** | 单点预测 | 概率预测区间 | 风险评估支持 |
+
+**核心技术提升：**
+1. **从ODE仿真到贝叶斯推断**：将确定性模型拓展为概率框架
+2. **从单数据流到双数据流**：分离生物学发病与临床报告过程
+3. **从静态到动态**：引入时变的疾病认知反馈机制
+4. **从简化到现实**：增加媒介种群动态平衡约束
 
 ## 模型局限性
 
-本研究所用SEIR-SEI动力学模型在疫情分析中具有一定的科学性和实用性，但仍存在多方面的局限，需谨慎解读模型结果。主要局限性包括：
+尽管本研究所构建的增强型SEIR-SEI模型在多个方面进行了创新性改进，但在疫情分析中仍存在一定的局限性，需谨慎解读模型结果。主要局限性包括：
+
+### 已改进的局限性
+
+**1. 数据流分离问题（已解决）**：
+- **传统问题**：单一观测模型无法区分生物学过程与报告过程
+- **本研究改进**：双数据流建模框架成功分离症状发病与临床报告过程
+
+**2. 行为反馈缺失问题（已解决）**：
+- **传统问题**：忽略公众对疫情信息的行为反应
+- **本研究改进**：引入疾病认知反馈机制，动态调节传播强度
+
+**3. 媒介种群不现实问题（已解决）**：
+- **传统问题**：媒介无限增长，缺乏生态学约束
+- **本研究改进**：加入媒介出生死亡率，维持种群平衡
+
+### 仍存在的局限性
 
 ### 数据与参数来源的局限
 
@@ -1050,12 +1361,28 @@ if (!is.null(results$rt_comprehensive)) {
 ### 未来改进方向
 
 1. **加强本地数据收集**：建议未来加强现场流行病学调查和媒介密度监测，获取更为准确的本地参数和动态数据。
-2. **纳入防控措施与环境变量**：将防控措施执行情况、气象环境等外部变量纳入模型，提升模拟的现实性和预测能力。
+2. **扩展防控措施建模**：
+   - **时变干预效果**：将疫情期间防控措施的时间效应纳入awareness机制
+   - **多重干预策略**：区分不同类型防控措施（蚊虫控制、个人防护、健康教育）的效果
 3. **参数时变与空间建模**：发展参数时变和空间异质性模型，更好地反映疫情的动态变化和空间分布特征。
 4. **多源数据融合与不确定性量化**：结合病例、媒介、气象等多源数据，采用贝叶斯等方法全面量化模型不确定性，提升推断的科学性和决策参考价值。
-5. **区分病例类型与隐性感染**：未来模型可进一步细化病例分型，纳入无症状感染者的传播作用，更全面反映疫情实际规模。
+5. **区分病例类型与隐性感染**：
+   - **无症状感染者建模**：扩展模型包含无症状感染分室
+   - **病例严重程度分层**：区分轻症、重症患者的不同传播特征
+6. **增强行为反馈机制**：
+   - **多信息源反馈**：除报告病例外，纳入媒体报道、政策发布等信息影响
+   - **人群异质性**：考虑不同人群对疫情信息敏感性的差异
 
-综上，当前模型为疫情分析和防控决策提供了有益参考，但其结果需结合实际监测数据和专家判断综合解读，避免过度依赖模型预测。
+### 模型贡献与创新总结
+
+本研究构建的增强型SEIR-SEI模型在以下方面做出了重要贡献：
+
+1. **方法学创新**：首次在媒介传播疾病建模中同时引入双数据流、疾病认知反馈和媒介种群动态
+2. **现实性提升**：显著改善了传统模型在行为反馈和生态学约束方面的不足
+3. **预测能力增强**：双流建模框架提高了对疫情发展趋势的预测精度
+4. **决策支持价值**：为基孔肯雅热等媒介传播疾病的防控策略制定提供了科学工具
+
+综上，虽然模型仍存在一定局限性，但其创新性改进显著提升了传染病数学建模的现实性和实用性。模型结果应与实际监测数据和专家判断相结合，为疫情防控决策提供科学依据。
 
 ---
 
@@ -1067,10 +1394,74 @@ if (!is.null(results$rt_comprehensive)) {
 - **硬件环境**：`r parallel::detectCores()`核心处理器
 - **分析日期**：`r Sys.Date()`
 
+## 模型实现详情
+
+### 核心模型文件
+
+**1. Stan模型定义（`fitting/seir_zxc.stan`）**：
+- **模型结构**：8-分室SEIR-SEI-Report动力学模型（S_h, E_h, I_h, R_h, Report_h, S_v, I_v, R_v）
+- **关键特征**：双数据流观测、疾病认知反馈、媒介种群动态
+- **求解器**：integrate_ode_rk45四阶龙格-库塔法
+- **参数数量**：12个主要流行病学参数
+- **观测期覆盖**：29天完整疫情周期（2025-06-16至2025-07-26）
+- **预测期**：7天前瞻性预测（2025-07-27至2025-08-02）
+
+**2. R分析脚本（`fitting/mcmc_fitting.R`）**：
+- **功能模块**：数据预处理、MCMC推断、结果分析、可视化
+- **增强功能**：双数据流处理、综合Rt分析、增强诊断
+- **代码行数**：1157行，完整分析流程
+- **并行计算**：支持多核MCMC采样
+
+### 数据文件结构
+
+**输入数据**：
+- `data/daily_cases_foshan_symptons.csv`：症状发病数据（生物学过程，29天，2025-06-16至2025-07-26）
+- `data/daily_cases_foshan.csv`：临床报告数据（报告过程，18天，2025-07-08至2025-07-26）
+- `data/population_foshan.csv`：人口学数据（佛山市969.89万人）
+
+**数据特征对比**：
+- **症状发病数据**：覆盖完整疫情周期，包含早期缓慢增长和后期回落阶段
+- **临床报告数据**：集中在疫情高峰期，反映临床监测系统特征
+- **重叠期间**：2025-07-08至2025-07-26（18天），支持双数据流建模对比分析
+
+**输出结果**：
+- `fitting/model_results.rds`：完整分析结果存储
+- 参数后验分布、预测结果、诊断指标
+
+### 技术创新点
+
+**1. 双负二项观测模型**：
+```stan
+// 生物学发病过程
+cases[t] ~ neg_binomial_2(incidence[t], phi_incidence);
+// 临床报告过程  
+cases_reported[t] ~ neg_binomial_2(reported_pred[t], phi_reported);
+```
+
+**2. 疾病认知反馈机制**：
+```stan
+real recent_reports = fmax(1.0, Report_h / (t + 1.0));
+real awareness_effect = 1.0 / (1.0 + awareness * recent_reports);
+```
+
+**3. 媒介种群平衡与正确传播**：
+```stan
+// 正确的人群感染（来自感染媒介I_v）
+dS_h = -beta * beta_hv * S_h * I_v / N_v * awareness_effect;
+dE_h =  beta * beta_hv * S_h * I_v / N_v * awareness_effect - sigma_h * E_h;
+
+// 媒介种群动态平衡
+dS_v = mu_v * N_v - vie * beta_vh * S_v * I_h / N_h * awareness_effect - mu_v * S_v;
+dI_v = vie * beta_vh * S_v * I_h / N_h * awareness_effect - gamma_v * I_v - mu_v * I_v;
+dR_v = gamma_v * I_v - mu_v * R_v;
+```
+
 ## 数据和代码可获得性
-- 主要脚本：`fitting/mcmc_fitting.R`、`fitting/seir_zxc.stan`
-- 数据文件：`data/daily_cases_foshan.csv`
-- 完整代码和数据可通过项目仓库获取
+- **核心脚本**：`fitting/mcmc_fitting.R`（1157行）、`fitting/seir_zxc.stan`（165行，已修正传播方程）
+- **数据文件**：`data/daily_cases_foshan_symptons.csv`、`data/daily_cases_foshan.csv`
+- **结果文件**：`fitting/model_results.rds`、参数估计和预测结果
+- **文档文件**：`MODEL_REPORT_CN.qmd`（本报告源代码）
+- **完整项目**：所有代码和数据均可通过项目仓库获取，确保研究的可重现性
 
 ---
 

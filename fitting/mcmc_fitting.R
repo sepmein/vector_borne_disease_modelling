@@ -37,36 +37,87 @@ set.seed(42)
 setup_data <- function() {
   cat("Loading and preprocessing epidemiological data...\n")
 
-  # Read data from CSV file
-  csv_file <- "data/daily_cases_foshan.csv"
-  
-  if (!file.exists(csv_file)) {
-    stop("CSV file not found: ", csv_file)
-  }
-  
-  # Read the CSV file
-  data_df <- read.csv(csv_file, stringsAsFactors = FALSE)
-  
-  # Convert date column to Date format
-  dates <- as.Date(data_df$date)
-  cases <- data_df$daily_cases
+  # Read symptom-based cases data (biological incidence)
+  symptons_file <- "data/daily_cases_foshan_symptons.csv"
+  reported_file <- "data/daily_cases_foshan.csv"
 
+  if (!file.exists(symptons_file)) {
+    stop("Symptoms CSV file not found: ", symptons_file)
+  }
+  if (!file.exists(reported_file)) {
+    stop("Reported CSV file not found: ", reported_file)
+  }
+
+  # Read both CSV files
+  symptons_df <- read.csv(symptons_file, stringsAsFactors = FALSE)
+  reported_df <- read.csv(reported_file, stringsAsFactors = FALSE)
+
+  # Remove 2025-07-26 data from both datasets
+  symptons_df <- symptons_df[symptons_df$date != "2025-07-26", ]
+  reported_df <- reported_df[reported_df$date != "2025-07-26", ]
+
+  # Convert date columns to Date format
+  symptons_dates <- as.Date(symptons_df$date)
+  reported_dates <- as.Date(reported_df$date)
+
+  # Find overlapping date range
+  start_date <- max(min(symptons_dates), min(reported_dates))
+  end_date <- min(max(symptons_dates), max(reported_dates))
+
+  cat(sprintf("Symptoms data range: %s to %s\n", min(symptons_dates), max(symptons_dates)))
+  cat(sprintf("Reported data range: %s to %s\n", min(reported_dates), max(reported_dates)))
+  cat(sprintf("Using overlapping period: %s to %s\n", start_date, end_date))
+
+  # Filter both datasets to overlapping period
+  symptons_filtered <- symptons_df[symptons_dates >= start_date & symptons_dates <= end_date, ]
+  reported_filtered <- reported_df[reported_dates >= start_date & reported_dates <= end_date, ]
+
+  # Create aligned date sequence
+  dates <- seq(from = start_date, to = end_date, by = "day")
+
+  # Align both datasets to the same date sequence
+  symptons_aligned <- merge(
+    data.frame(date = as.character(dates)),
+    symptons_filtered,
+    by = "date",
+    all.x = TRUE
+  )
+  reported_aligned <- merge(
+    data.frame(date = as.character(dates)),
+    reported_filtered,
+    by = "date",
+    all.x = TRUE
+  )
+
+  # Fill missing values with 0
+  symptons_aligned$daily_cases[is.na(symptons_aligned$daily_cases)] <- 0
+  reported_aligned$daily_cases[is.na(reported_aligned$daily_cases)] <- 0
+
+  # Extract aligned case vectors
+  cases_symptons <- symptons_aligned$daily_cases
+  cases_reported <- reported_aligned$daily_cases
   # Basic statistics
   cat(sprintf(
-    "Observation period: %s to %s (%d days)\n",
+    "Final observation period: %s to %s (%d days)\n",
     min(dates), max(dates), length(dates)
   ))
   cat(sprintf(
-    "Total cases: %d (Peak: %d cases on %s)\n",
-    sum(cases), max(cases), dates[which.max(cases)]
+    "Total symptom cases: %d (Peak: %d cases on %s)\n",
+    sum(cases_symptons), max(cases_symptons), dates[which.max(cases_symptons)]
+  ))
+  cat(sprintf(
+    "Total reported cases: %d (Peak: %d cases on %s)\n",
+    sum(cases_reported), max(cases_reported), dates[which.max(cases_reported)]
   ))
 
   # Convert to Stan format
-  T <- length(cases)
+  T <- length(dates)
   ts <- as.numeric(dates - dates[1]) + 1 # Time points starting from 1
+
   return(list(
     dates = dates,
-    cases = cases,
+    cases = cases_symptons,           # Biological incidence (E→I transition)
+    cases_reported = cases_reported,  # Reported cases
     T = T,
     ts = ts
   ))
@@ -90,6 +141,7 @@ setup_model_parameters <- function() {
     5, # E_h0: Initially exposed humans (realistic for dengue)
     5, # I_h0: Initially infectious humans (matches early cases)
     0, # R_h0: Initially recovered humans
+    0, # Report_h0: Initially reported cumulative cases
     5000, # S_v0: Much smaller vector population (more realistic)
     10, # I_v0: Some initially infectious vectors
     0 # R_v0: Initially recovered vectors
@@ -97,7 +149,7 @@ setup_model_parameters <- function() {
 
   cat(sprintf("Human population: %.2e\n", N_h))
   cat(sprintf("Initial infectious humans: %d\n", init_state[3]))
-  cat(sprintf("Initial susceptible vectors: %.0e\n", init_state[5]))
+  cat(sprintf("Initial susceptible vectors: %.0e\n", init_state[6]))
 
   return(list(
     N_h = N_h,
@@ -130,15 +182,38 @@ run_mcmc_inference <- function(stan_data, n_iter = 2000, n_chains = 4,
   cat("N_h value:", stan_data$N_h, "\n")
   cat("N_h class:", class(stan_data$N_h), "\n")
 
-  # Run Stan with enhanced control parameters
+  # Create stable initial values for each chain
+  create_stable_init <- function() {
+    list(
+      beta = 0.25 + rnorm(1, 0, 0.05), # Stable around 0.25
+      beta_hv = 0.24 + rnorm(1, 0, 0.03), # Stable around 0.24
+      sigma_h = 1 / 3 + rnorm(1, 0, 0.02), # Stable around 1/3
+      gamma_h = 1 / 4 + rnorm(1, 0, 0.02), # Stable around 1/4
+      vie = 0.25 + rnorm(1, 0, 0.05), # Stable around 0.25
+      beta_vh = 0.24 + rnorm(1, 0, 0.03), # Stable around 0.24
+      gamma_v = 1 / 3.5 + rnorm(1, 0, 0.02), # Stable around 1/3.5
+      gamma_rh = 1 / 3.5 + rnorm(1, 0, 0.05), # Stable around 1/3.5
+      awareness = 0.1 + abs(rnorm(1, 0, 0.02)), # Small positive
+      mu_v = 1 / 10 + rnorm(1, 0, 0.01), # Stable around 1/10
+      phi_incidence = 10 + abs(rnorm(1, 0, 2)), # Positive around 10
+      phi_reported = 5 + abs(rnorm(1, 0, 1)) # Positive around 5
+    )
+  }
+
+  init_list <- lapply(1:n_chains, function(x) create_stable_init())
+
+  # Run Stan with enhanced control parameters and stable initialization
   fit <- stan(
     file = stan_file,
     data = stan_data,
     iter = n_iter,
     chains = n_chains,
+    init = init_list,  # ✅ ADD STABLE INITIAL VALUES
     control = list(
       adapt_delta = adapt_delta,
-      max_treedepth = max_treedepth
+      max_treedepth = max_treedepth,
+      stepsize = 0.01,           # ✅ Smaller steps for stability
+      metric = "diag_e"          # ✅ Diagonal mass matrix
     ),
     verbose = TRUE
   )
@@ -165,7 +240,7 @@ analyze_chain_convergence <- function(fit) {
   cat("\n=== Detailed Chain Convergence Analysis ===\n")
 
   # Extract key parameters for convergence analysis
-  key_params <- c("beta", "beta_hv", "sigma_h", "gamma_h", "vie", "beta_vh", "gamma_v")
+  key_params <- c("beta", "beta_hv", "sigma_h", "gamma_h", "vie", "beta_vh", "gamma_v", "gamma_rh", "awareness", "mu_v")
 
   # Create trace plots to visualize chain mixing
   p_trace <- mcmc_trace(fit, pars = key_params[1:4]) # Show first 4 parameters
@@ -222,7 +297,7 @@ analyze_parameters <- function(fit) {
   cat("\n=== Parameter Estimates ===\n")
 
   # Key epidemiological parameters
-  key_params <- c("beta", "beta_hv", "sigma_h", "gamma_h", "vie", "beta_vh", "gamma_v", "phi")
+  key_params <- c("beta", "beta_hv", "sigma_h", "gamma_h", "vie", "beta_vh", "gamma_v", "gamma_rh", "awareness", "mu_v", "phi_incidence", "phi_reported")
 
   # Print parameter summary
   print(fit, pars = key_params, probs = c(0.025, 0.25, 0.5, 0.75, 0.975))
@@ -320,7 +395,7 @@ create_model_plots <- function(fit, data_list) {
     )
   # Parameter posterior distributions
   draws <- as_draws_df(fit)
-  key_params <- c("beta", "beta_hv", "sigma_h", "gamma_h", "vie", "beta_vh", "gamma_v")
+  key_params <- c("beta", "beta_hv", "sigma_h", "gamma_h", "vie", "beta_vh", "gamma_v", "gamma_rh", "awareness", "mu_v")
 
   p2 <- draws %>%
     select(all_of(key_params)) %>%
@@ -335,28 +410,57 @@ create_model_plots <- function(fit, data_list) {
     ) +
     theme_minimal()
 
-  # Future prediction extraction and plot
+  # Future prediction extraction and plots
+  future_pred <- NULL
+  future_reported_pred <- NULL
+  p_future <- NULL
+  p_future_reported <- NULL
   if ("future_incidence" %in% names(rstan::extract(fit))) {
+    # Extract biological incidence predictions
     future_inc <- rstan::extract(fit, pars = "future_incidence")$future_incidence
     future_pred <- as.data.frame(t(apply(future_inc, 2, quantile, probs = c(0.025, 0.25, 0.5, 0.75, 0.975))))
     colnames(future_pred) <- c("lower_95", "lower_50", "median", "upper_50", "upper_95")
     future_pred$day <- 1:nrow(future_pred)
     future_pred$date <- max(data_list$dates) + future_pred$day
+    future_pred$type <- "Biological Incidence"
 
+    # Plot biological incidence predictions
     p_future <- ggplot(future_pred, aes(x = date)) +
       geom_ribbon(aes(ymin = lower_95, ymax = upper_95), fill = "green", alpha = 0.2) +
       geom_ribbon(aes(ymin = lower_50, ymax = upper_50), fill = "green", alpha = 0.4) +
       geom_line(aes(y = median), color = "green") +
-      labs(title = "Future Prediction (Next 7 Days)", y = "Predicted Daily Cases", x = "Date") +
+      labs(title = "Future Biological Incidence Prediction (Next 7 Days)", 
+           y = "Predicted Daily Biological Cases", x = "Date") +
       theme_minimal() +
       theme(
         axis.text.x = element_text(angle = 45, hjust = 1),
         plot.title = element_text(size = 14, face = "bold"),
         plot.subtitle = element_text(size = 12)
       )
-  } else {
-    p_future <- NULL
-    future_pred <- NULL
+  }
+  
+  if ("future_reported" %in% names(rstan::extract(fit))) {
+    # Extract reported cases predictions
+    future_rep <- rstan::extract(fit, pars = "future_reported")$future_reported
+    future_reported_pred <- as.data.frame(t(apply(future_rep, 2, quantile, probs = c(0.025, 0.25, 0.5, 0.75, 0.975))))
+    colnames(future_reported_pred) <- c("lower_95", "lower_50", "median", "upper_50", "upper_95")
+    future_reported_pred$day <- 1:nrow(future_reported_pred)
+    future_reported_pred$date <- max(data_list$dates) + future_reported_pred$day
+    future_reported_pred$type <- "Reported Cases"
+
+    # Plot reported cases predictions
+    p_future_reported <- ggplot(future_reported_pred, aes(x = date)) +
+      geom_ribbon(aes(ymin = lower_95, ymax = upper_95), fill = "orange", alpha = 0.2) +
+      geom_ribbon(aes(ymin = lower_50, ymax = upper_50), fill = "orange", alpha = 0.4) +
+      geom_line(aes(y = median), color = "orange") +
+      labs(title = "Future Reported Cases Prediction (Next 7 Days)", 
+           y = "Predicted Daily Reported Cases", x = "Date") +
+      theme_minimal() +
+      theme(
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        plot.title = element_text(size = 14, face = "bold"),
+        plot.subtitle = element_text(size = 12)
+      )
   }
 
   # Combine model fit and future prediction for plotting
@@ -364,18 +468,23 @@ create_model_plots <- function(fit, data_list) {
     select(date, median, lower_50, upper_50, lower_95, upper_95) %>%
     mutate(type = "Model Fit")
 
-  future_pred2 <- future_pred %>%
-    select(date, median, lower_50, upper_50, lower_95, upper_95) %>%
-    mutate(type = "Future Prediction")
-
-  all_pred <- bind_rows(model_pred, future_pred2)
+  # Combine biological incidence predictions if available
+  all_pred <- model_pred
+  if (!is.null(future_pred)) {
+    future_pred2 <- future_pred %>%
+      select(date, median, lower_50, upper_50, lower_95, upper_95) %>%
+      mutate(type = "Future Biological Incidence")
+    all_pred <- bind_rows(all_pred, future_pred2)
+  }
 
   return(list(
     prediction_plot = p1,
     parameter_plot = p2,
     summary_data = summ_inc,
     future_prediction_plot = p_future,
+    future_reported_plot = p_future_reported,
     future_prediction_summary = future_pred,
+    future_reported_summary = future_reported_pred,
     combined_prediction_plot = ggplot() +
       # 95% credible interval ribbons
       geom_ribbon(
@@ -401,8 +510,8 @@ create_model_plots <- function(fit, data_list) {
         aes(x = date, y = cases),
         color = "red", size = 2, alpha = 0.8, shape = 16
       ) +
-      scale_color_manual(values = c("Model Fit" = "steelblue", "Future Prediction" = "green")) +
-      scale_fill_manual(values = c("Model Fit" = "steelblue", "Future Prediction" = "green")) +
+      scale_color_manual(values = c("Model Fit" = "steelblue", "Future Biological Incidence" = "green")) +
+      scale_fill_manual(values = c("Model Fit" = "steelblue", "Future Biological Incidence" = "green")) +
       labs(
         title = "Observed Data, Model Fit, and Future Prediction",
         subtitle = "Red points: observed data; Blue: model fit; Green: future prediction",
@@ -426,40 +535,85 @@ create_model_plots <- function(fit, data_list) {
 model_diagnostics <- function(fit, data_list) {
   cat("\n=== Model Diagnostics ===\n")
 
-  # Posterior predictive checks
-  y_rep <- rstan::extract(fit, pars = "incidence")$incidence
-  y_obs <- data_list$cases
+  # Posterior predictive checks for biological incidence
+  cat("\n--- Biological Incidence Diagnostics ---\n")
+  y_rep_inc <- rstan::extract(fit, pars = "incidence")$incidence
+  y_obs_inc <- data_list$cases
 
-  # Calculate Bayesian R-squared
-  # (simplified version - could be enhanced)
-  residuals <- sweep(y_rep, 2, y_obs, "-")
-  ss_res <- rowSums(residuals^2)
-  ss_tot <- sum((y_obs - mean(y_obs))^2)
-  r_squared <- 1 - ss_res / ss_tot
+  # Calculate Bayesian R-squared for incidence
+  residuals_inc <- sweep(y_rep_inc, 2, y_obs_inc, "-")
+  ss_res_inc <- rowSums(residuals_inc^2)
+  ss_tot_inc <- sum((y_obs_inc - mean(y_obs_inc))^2)
+  r_squared_inc <- 1 - ss_res_inc / ss_tot_inc
 
   cat(sprintf(
-    "Bayesian R-squared: %.3f [%.3f, %.3f]\n",
-    median(r_squared), quantile(r_squared, 0.025), quantile(r_squared, 0.975)
+    "Biological Incidence - Bayesian R-squared: %.3f [%.3f, %.3f]\n",
+    median(r_squared_inc), quantile(r_squared_inc, 0.025), quantile(r_squared_inc, 0.975)
   ))
 
-  # Root Mean Square Error
-  rmse <- sqrt(rowMeans(residuals^2))
+  # Root Mean Square Error for incidence
+  rmse_inc <- sqrt(rowMeans(residuals_inc^2))
   cat(sprintf(
-    "RMSE: %.2f [%.2f, %.2f]\n",
-    median(rmse), quantile(rmse, 0.025), quantile(rmse, 0.975)
+    "Biological Incidence - RMSE: %.2f [%.2f, %.2f]\n",
+    median(rmse_inc), quantile(rmse_inc, 0.025), quantile(rmse_inc, 0.975)
   ))
 
-  # Mean Absolute Error
-  mae <- rowMeans(abs(residuals))
+  # Mean Absolute Error for incidence
+  mae_inc <- rowMeans(abs(residuals_inc))
   cat(sprintf(
-    "MAE: %.2f [%.2f, %.2f]\n",
-    median(mae), quantile(mae, 0.025), quantile(mae, 0.975)
+    "Biological Incidence - MAE: %.2f [%.2f, %.2f]\n",
+    median(mae_inc), quantile(mae_inc, 0.025), quantile(mae_inc, 0.975)
+  ))
+
+  # Posterior predictive checks for reported cases
+  cat("\n--- Reported Cases Diagnostics ---\n")
+  y_rep_rep <- rstan::extract(fit, pars = "reported_pred")$reported_pred
+  y_obs_rep <- data_list$cases_reported
+
+  # Calculate Bayesian R-squared for reported cases
+  residuals_rep <- sweep(y_rep_rep, 2, y_obs_rep, "-")
+  ss_res_rep <- rowSums(residuals_rep^2)
+  ss_tot_rep <- sum((y_obs_rep - mean(y_obs_rep))^2)
+  r_squared_rep <- 1 - ss_res_rep / ss_tot_rep
+
+  cat(sprintf(
+    "Reported Cases - Bayesian R-squared: %.3f [%.3f, %.3f]\n",
+    median(r_squared_rep), quantile(r_squared_rep, 0.025), quantile(r_squared_rep, 0.975)
+  ))
+
+  # Root Mean Square Error for reported cases
+  rmse_rep <- sqrt(rowMeans(residuals_rep^2))
+  cat(sprintf(
+    "Reported Cases - RMSE: %.2f [%.2f, %.2f]\n",
+    median(rmse_rep), quantile(rmse_rep, 0.025), quantile(rmse_rep, 0.975)
+  ))
+
+  # Mean Absolute Error for reported cases
+  mae_rep <- rowMeans(abs(residuals_rep))
+  cat(sprintf(
+    "Reported Cases - MAE: %.2f [%.2f, %.2f]\n",
+    median(mae_rep), quantile(mae_rep, 0.025), quantile(mae_rep, 0.975)
+  ))
+
+  # Combined diagnostics
+  cat("\n--- Combined Model Performance ---\n")
+  total_rmse <- sqrt((ss_res_inc + ss_res_rep) / (length(y_obs_inc) + length(y_obs_rep)))
+  cat(sprintf(
+    "Combined RMSE: %.2f [%.2f, %.2f]\n",
+    median(total_rmse), quantile(total_rmse, 0.025), quantile(total_rmse, 0.975)
   ))
 
   return(list(
-    r_squared = r_squared,
-    rmse = rmse,
-    mae = mae
+    # Biological incidence diagnostics
+    r_squared_incidence = r_squared_inc,
+    rmse_incidence = rmse_inc,
+    mae_incidence = mae_inc,
+    # Reported cases diagnostics  
+    r_squared_reported = r_squared_rep,
+    rmse_reported = rmse_rep,
+    mae_reported = mae_rep,
+    # Combined
+    combined_rmse = total_rmse
   ))
 }
 
@@ -564,6 +718,8 @@ calculate_rt_comprehensive <- function(fit, data_list) {
         mean_rt = round(rt_estimates$R$`Mean(R)`, 4),
         lower_ci = round(rt_estimates$R$`Quantile.0.025(R)`, 4),
         upper_ci = round(rt_estimates$R$`Quantile.0.975(R)`, 4),
+        # Use original period information from rt_data
+        period = rt_data$period[rt_estimates$R$t_end],
         stringsAsFactors = FALSE
       ) %>%
         mutate(
@@ -572,9 +728,7 @@ calculate_rt_comprehensive <- function(fit, data_list) {
             lower_ci > 1 ~ "Growth",
             upper_ci < 1 ~ "Decline",
             TRUE ~ "Plateau"
-          ),
-          # Determine period based on date
-          period = ifelse(date <= max(data_list$dates), "Observed", "Predicted")
+          )
         )
 
       cat(sprintf("Rt estimation successful for %d time points\n", nrow(rt_result)))
@@ -794,7 +948,7 @@ extract_parameter_summaries <- function(fit) {
   cat("\n=== Extracting Parameter Summaries for Reporting ===\n")
   
   # Key epidemiological parameters
-  key_params <- c("beta", "beta_hv", "sigma_h", "gamma_h", "vie", "beta_vh", "gamma_v", "phi")
+  key_params <- c("beta", "beta_hv", "sigma_h", "gamma_h", "vie", "beta_vh", "gamma_v", "gamma_rh", "awareness", "mu_v", "phi_incidence", "phi_reported")
   
   # Extract draws
   draws <- as_draws_df(fit)
@@ -833,20 +987,24 @@ extract_parameter_summaries <- function(fit) {
   param_descriptions <- param_summaries %>%
     mutate(
       parameter_name = case_when(
-        parameter == "beta" ~ "蚊虫叮咬率（β）",
-        parameter == "beta_hv" ~ "媒介传人概率（β_hv）",
-        parameter == "beta_vh" ~ "人传媒介概率（β_vh）",
-        parameter == "sigma_h" ~ "潜伏期转换率（σ_h）",
-        parameter == "gamma_h" ~ "人群康复率（γ_h）",
-        parameter == "vie" ~ "人-媒介接触率（vie）",
-        parameter == "gamma_v" ~ "媒介康复率（γ_v）",
-        parameter == "phi" ~ "过度离散参数（φ）"
+        parameter == "beta" ~ "Vector Biting Rate (beta)",
+        parameter == "beta_hv" ~ "Vector-to-Human Transmission Probability (beta_hv)",
+        parameter == "beta_vh" ~ "Human-to-Vector Transmission Probability (beta_vh)",
+        parameter == "sigma_h" ~ "Latent Period Rate (sigma_h)",
+        parameter == "gamma_h" ~ "Human Recovery Rate (gamma_h)",
+        parameter == "vie" ~ "Human-Vector Contact Rate (vie)",
+        parameter == "gamma_v" ~ "Vector Recovery Rate (gamma_v)",
+        parameter == "gamma_rh" ~ "Reporting Rate (gamma_rh)",
+        parameter == "awareness" ~ "Behavioral Response Intensity to Reports (awareness)",
+        parameter == "mu_v" ~ "Vector Death Rate (mu_v)",
+        parameter == "phi_incidence" ~ "Overdispersion Parameter for Incidence (phi_incidence)",
+        parameter == "phi_reported" ~ "Overdispersion Parameter for Reported Cases (phi_reported)"
       ),
       formatted_value = sprintf("%.3f (%.3f - %.3f)", mean, q025, q975),
       unit = case_when(
-        parameter %in% c("beta", "sigma_h", "gamma_h", "gamma_v") ~ "/天",
-        parameter %in% c("beta_hv", "beta_vh", "vie") ~ "",
-        parameter == "phi" ~ ""
+        parameter %in% c("beta", "sigma_h", "gamma_h", "gamma_v", "gamma_rh", "mu_v") ~ "/day",
+        parameter %in% c("beta_hv", "beta_vh", "vie", "awareness") ~ "",
+        parameter %in% c("phi_incidence", "phi_reported") ~ ""
       ),
       full_description = paste0(parameter_name, " = ", formatted_value, unit)
     )
@@ -933,7 +1091,8 @@ main_analysis <- function() {
   stan_data <- list(
     T = data_list$T,
     ts = data_list$ts,
-    cases = data_list$cases,
+    cases = data_list$cases,                    # Biological incidence (symptoms data)
+    cases_reported = data_list$cases_reported,  # Reported cases 
     N_h = model_params$N_h,
     init_state = model_params$init_state
   )
@@ -943,8 +1102,11 @@ main_analysis <- function() {
   cat("N_h:", stan_data$N_h, "\n")
   cat("ts length:", length(stan_data$ts), "\n")
   cat("cases length:", length(stan_data$cases), "\n")
+  cat("cases_reported length:", length(stan_data$cases_reported), "\n")
   cat("init_state length:", length(stan_data$init_state), "\n")
   cat("init_state:", stan_data$init_state, "\n")
+  cat("Sample cases (symptoms):", head(stan_data$cases, 5), "\n")
+  cat("Sample cases_reported:", head(stan_data$cases_reported, 5), "\n")
 
   # Step 4: Run MCMC inference
   fit <- run_mcmc_inference(stan_data, n_chains = 8)
@@ -973,6 +1135,9 @@ main_analysis <- function() {
   print(plots$prediction_plot)
   if (!is.null(plots$future_prediction_plot)) {
     print(plots$future_prediction_plot)
+  }
+  if (!is.null(plots$future_reported_plot)) {
+    print(plots$future_reported_plot)
   }
   # Display Rt plots if available
   if (!is.null(rt_from_model)) {
