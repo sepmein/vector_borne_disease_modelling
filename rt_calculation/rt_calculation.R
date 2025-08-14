@@ -5,10 +5,14 @@ library(tidyr)
 library(openxlsx)
 library(ggplot2)
 
-#设置路径
-path <- "F:\\AI学习"
+# Base path for input data and outputs. Defaults to the current working
+# directory but can be set beforehand to use a different location.
+if (!exists("base_path")) {
+  base_path <- getwd()
+}
 
-d1<-read.csv("F:\\AI学习\\daily_cases_foshan.csv",header=TRUE)
+data_file <- file.path(base_path, "daily_cases_foshan.csv")
+d1 <- read.csv(data_file, header = TRUE)
 
 d1$date <- as.Date(d1$date)
 
@@ -67,5 +71,8 @@ ggplot(data = Rt_result,aes(x=date,y=meanR))+
         strip.text = element_text(size=20,colour = "black")
   )
 
-ggsave(filename = paste0("F:\\AI学习\\rt_报告数.png"),width = 16,height = 9,dpi = 300)
-write.xlsx(Rt_result,paste0(path,"rt_result.xlsx"))
+plot_file <- file.path(base_path, "rt_报告数.png")
+ggsave(filename = plot_file, width = 16, height = 9, dpi = 300)
+
+excel_file <- file.path(base_path, "rt_result.xlsx")
+write.xlsx(Rt_result, excel_file)
